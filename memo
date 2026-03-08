@@ -1,0 +1,593 @@
+flutter run --release -d 00008110-001E4C9A3E91401E
+
+codex resume --last
+
+You are a senior Flutter engineer, UI implementation specialist, and product-quality coding agent.
+
+Your task is to implement the PocketPlay app’s core shelf experience at a production-quality visual level.
+
+This task is design-critical.
+This is not a rough prototype task.
+This is not a generic ecommerce task.
+This is not a placeholder mockup task.
+
+The product’s main value is the shelf experience itself.
+
+==================================================
+READ THIS FIRST
+==================================================
+
+Before making any code changes, you MUST do the following in this exact order:
+
+1. Read AGENTS.md completely
+2. Read pocketplay_shelf_engine_complete_spec_jp.md completely
+3. Inspect every image inside sample_assets/
+4. Infer the shelf design rules from those references
+5. Summarize the design rules you will follow
+6. Only after that, begin implementation
+
+Do not skip these steps.
+Do not start coding before reading all instructions and references.
+
+The repository already contains:
+
+- AGENTS.md
+- pocketplay_shelf_engine_complete_spec_jp.md
+- sample_assets/
+
+You must treat AGENTS.md and pocketplay_shelf_engine_complete_spec_jp.md as mandatory instructions, not optional references.
+
+==================================================
+PROJECT GOAL
+==================================================
+
+PocketPlay is a board game discovery app.
+
+The core product idea is:
+
+not Search
+not Filter
+not Compare
+but Discover by browsing a realistic shelf
+
+The UI must feel like browsing a real board game store shelf, inspired by Jelly Jelly Store in Tokyo.
+
+This project should create the feeling of:
+
+- walking through a real board game store
+- looking at shelves made of light pine wood
+- finding boxes by visual curiosity
+- seeing tightly packed spine boxes, face-out boxes, and stacked boxes
+- feeling warmth, density, and physicality
+
+The result must NOT feel like:
+
+- a generic shopping app
+- an ecommerce catalog
+- a card list
+- a GridView-based store
+- a placeholder UI concept
+- a low-fidelity developer mockup
+
+If the result looks like a normal shopping UI, the task has failed.
+
+==================================================
+SOURCE OF TRUTH
+==================================================
+
+You must strictly follow these files in this order of authority:
+
+1. AGENTS.md
+2. pocketplay_shelf_engine_complete_spec_jp.md
+3. sample_assets/*
+
+If there is ambiguity, prefer the interpretation that increases realism of the physical shelf experience.
+
+Do not simplify the requirements into standard UI patterns.
+
+==================================================
+REFERENCE ASSETS
+==================================================
+
+Use the images inside sample_assets as visual references.
+
+Expected files:
+
+- sample_assets/store_overview_jelly_jelly_store.jpg
+- sample_assets/shelf_structure_reference.jpg
+- sample_assets/shelf_spine_layout_reference.jpg
+- sample_assets/shelf_spine_smallbox_reference.jpg
+- sample_assets/shelf_stack_layout_reference.jpg
+- sample_assets/wood_texture_light_pine.jpg
+
+Use them like this:
+
+sample_assets/store_overview_jelly_jelly_store.jpg
+- overall store atmosphere
+- warmth
+- shelf continuity
+- retail mood
+- realistic space feeling
+
+sample_assets/shelf_structure_reference.jpg
+- shelf board thickness
+- shelf depth
+- ratio of face and spine boxes
+- shelf geometry
+- physical shelf proportions
+
+sample_assets/shelf_spine_layout_reference.jpg
+- medium spine arrangement
+- shelf density
+- packed layout
+- color rhythm of spine boxes
+
+sample_assets/shelf_spine_smallbox_reference.jpg
+- extremely important
+- small box spine clusters
+- narrow colorful boxes
+- dense small-game shelf structure
+- high shelf realism reference
+
+sample_assets/shelf_stack_layout_reference.jpg
+- horizontal stacked box references
+- mixed shelf arrangement
+- shop-like irregularity
+
+sample_assets/wood_texture_light_pine.jpg
+- shelf material reference
+- light pine wood
+- matte finish
+- natural grain
+- subtle knots
+- real store fixture feel
+
+You must visually study these references before implementation.
+
+==================================================
+ABSOLUTE DESIGN TARGET
+==================================================
+
+The shelf must look like real furniture.
+The boxes must look like real products.
+The layout must look physically arranged, not algorithmically gridded.
+The screen must feel premium and believable.
+
+A user opening the app should immediately feel:
+
+“This is a real board game shelf on a phone.”
+
+The shelf is not decoration.
+The shelf is the core experience.
+
+==================================================
+CRITICAL DESIGN PRINCIPLES
+==================================================
+
+1. This is not ecommerce UI
+
+Do not implement:
+- generic shopping cards
+- product tiles
+- spaced out grid layouts
+- standard catalog UI
+- typical marketplace patterns
+
+This app must feel like a physical store shelf, not a digital storefront.
+
+2. Shelf realism is more important than implementation convenience
+
+If there is a conflict between convenience and realism, prioritize realism unless performance becomes unacceptable.
+
+3. Boxes are the hero
+
+The shelf is important, but the real star is the board game box imagery and the physical arrangement.
+
+Do not overdesign the wood.
+Do not make the shelf too decorative.
+Do not let the shelf overpower the boxes.
+
+4. Density matters
+
+The shelf must feel packed.
+Not cluttered randomly, but packed like a real store.
+
+5. Physicality matters
+
+The arrangement must feel like objects placed on furniture.
+Not cards dropped into a layout engine.
+
+==================================================
+STRICT VISUAL RULES
+==================================================
+
+Shelf board thickness:
+- must visually feel about 18–22px
+- must not look like thick UI panels
+- must not exceed realistic furniture thickness
+- thick decorative wood slabs are forbidden
+
+Shelf wood:
+- use a light pine wood feeling
+- matte finish
+- natural light yellow-brown tone
+- subtle grain
+- no glossy luxury wood
+- no dark wood unless specifically required later
+
+Box spacing:
+- usually 2–6px
+- avoid wide gaps
+- avoid airy layouts
+- avoid premium-minimal spacing that kills realism
+
+Box pose support:
+- spine
+- face
+- stack
+
+Standard pose ratio:
+- spine: 65%
+- face: 25%
+- stack: 10%
+
+This can vary slightly per shelf, but all three must exist overall.
+
+Small box spine groups:
+- extremely important
+- must be clearly represented
+- must reflect shelf_spine_smallbox_reference.jpg
+- these narrow colorful spine runs are one of the key realism signals
+
+Lighting:
+- warm store-like light
+- subtle warmth
+- soft shadows
+- gentle depth
+- no excessive orange glow
+- no dramatic cinematic spotlighting
+
+Shadows:
+- short soft contact shadows
+- restrained drop shadows
+- avoid aggressive BoxShadow use
+- avoid fake floating card shadows
+- avoid shadow-heavy dribbble style
+
+Materials:
+- shelf should feel natural and lightly used
+- not stylized fantasy wood
+- not plastic
+- not over-rendered
+
+==================================================
+THINGS THAT MUST NEVER HAPPEN
+==================================================
+
+Do not:
+- use GridView as the core shelf rendering approach
+- render the main shelf as product cards
+- create rounded rectangle shopping tiles and call them boxes
+- space boxes like a modern catalog
+- build a generic marketplace homepage
+- create large decorative wooden sections that feel like UI panels
+- use fake placeholder colored boxes as a finished result
+- ignore sample_assets
+- ignore AGENTS.md
+- ignore the Japanese spec
+- make the shelf too clean and too empty
+- make the result feel like a prototype
+- choose “easy to code” over “visually correct”
+- stop once something is merely acceptable
+
+If the result looks generic, keep improving it.
+
+==================================================
+REQUIRED TECH STACK
+==================================================
+
+Use Flutter.
+
+Preferred implementation:
+- StatelessWidget
+- Riverpod
+- flutter_hooks
+- CustomScrollView
+- SliverList
+- Stack
+- Positioned
+- Transform
+- RepaintBoundary
+- cached_network_image
+
+Do not rely on generic GridView-based product UIs.
+
+Use stack-based shelf composition with separate layers.
+
+==================================================
+ARCHITECTURE REQUIREMENTS
+==================================================
+
+You must keep the implementation structured and production-minded.
+
+Use:
+- declarative widgets
+- provider-based state and data flow
+- placement logic separated from widget rendering
+- reusable shelf rendering components
+
+Expected architecture:
+- Shelf layout logic in a dedicated service or engine layer
+- Home screen rendering separate from placement generation
+- widgets focused on rendering, not random logic
+- stable seeded placement generation
+
+Avoid:
+- heavy logic directly inside widget build methods
+- repeated random generation every frame
+- one-file spaghetti implementation
+- ad hoc uncontrolled UI state
+
+==================================================
+IMPLEMENTATION PRIORITIES
+==================================================
+
+Implement in this order:
+
+Phase 1: understanding
+1. Read AGENTS.md
+2. Read pocketplay_shelf_engine_complete_spec_jp.md
+3. Inspect sample_assets
+4. Summarize visual constraints and implementation plan
+
+Phase 2: app structure
+5. Analyze repository structure
+6. Create or refine HomeScreen
+7. Create premium section header style
+8. Create realistic ShelfRow widget structure
+
+Phase 3: shelf foundation
+9. Render shelf background and shelf board
+10. Apply wood texture reference
+11. Ensure thin board geometry
+12. Establish proper vertical and horizontal proportions
+
+Phase 4: shelf engine
+13. Create Game model if missing
+14. Create Placement model
+15. Implement shelf placement service
+16. Implement seeded stable randomness
+17. Implement spine layout logic
+18. Implement face layout logic
+19. Implement stack layout logic
+20. Ensure dense but natural arrangement
+
+Phase 5: realism pass
+21. Add real box imagery rendering
+22. Add contact shadows
+23. Add restrained depth and z-order feeling
+24. Tune spacing to match references
+25. Tune size distribution
+26. Ensure small spine clusters are convincing
+27. Compare result visually against sample_assets and refine
+
+Phase 6: interaction
+28. Add restrained tap animation
+29. Add Hero transition to detail
+30. Keep the interaction premium and subtle
+
+Phase 7: performance
+31. Add RepaintBoundary appropriately
+32. Prevent unnecessary rebuilds
+33. Cache images
+34. Precache only what is needed
+35. Keep scrolling smooth
+
+Do not jump directly to a rough mockup and stop there.
+
+==================================================
+HOME SCREEN EXPECTATION
+==================================================
+
+The HomeScreen is the most important screen in the entire app.
+
+It must:
+- immediately communicate the product’s identity
+- feel premium
+- feel tactile
+- show multiple shelf sections
+- avoid generic storefront patterns
+
+It should include:
+- a premium app title area
+- a calm supporting subtitle
+- section headings
+- multiple shelf rows
+
+Possible section examples:
+- 今日のおすすめ
+- パーティーゲーム
+- 2人用ゲーム
+- 戦略ゲーム
+- 小箱ゲーム
+- ジャケ買いしたくなる箱
+
+But content labels are secondary.
+The visual truth of the shelf is primary.
+
+==================================================
+SHELF ENGINE EXPECTATION
+==================================================
+
+The Shelf Engine is the heart of this product.
+
+It must generate layouts that feel:
+- physical
+- dense
+- natural
+- slightly irregular
+- believable
+- curated, not random chaos
+
+The output must NOT feel:
+- symmetric
+- repetitive
+- machine-gridded
+- too clean
+- too sparse
+
+Natural arrangement rules:
+- do not place too many face boxes next to each other
+- do not create long mechanical runs of equal widths
+- use small spine groups to fill and texture the shelf
+- place stacks sparingly
+- allow slight irregularity
+- maintain strong density
+- keep visual rhythm varied
+
+The result should feel like a real person arranged a board game shelf.
+
+==================================================
+DETAIL SCREEN EXPECTATION
+==================================================
+
+The detail screen should feel like the user picked a game box up from the shelf.
+
+Need:
+- Hero transition from shelf item
+- calm premium layout
+- main box image
+- title
+- player count
+- play time
+- rating
+- optional CTA buttons
+
+Do not turn the detail screen into a generic product page.
+It should remain connected to the shelf world.
+
+==================================================
+ANIMATION RULES
+==================================================
+
+Tap behavior:
+- subtle press-in
+- subtle lift
+- premium restrained Hero motion
+
+Allowed:
+- small scale change
+- slight elevation shift
+- mild perspective if tasteful
+
+Not allowed:
+- bouncy toy-like movement
+- exaggerated 3D flips
+- loud motion
+- gimmicky animation
+- app-store-template transitions
+
+Everything should feel premium and controlled.
+
+==================================================
+PERFORMANCE RULES
+==================================================
+
+The UI must remain smooth.
+
+Required:
+- use RepaintBoundary for shelf rows where beneficial
+- avoid placement regeneration every build
+- cache box images
+- only precache nearby images
+- keep painting cost controlled
+
+Avoid:
+- unbounded image preloading
+- expensive shadows on every element without need
+- excessive clipping
+- unnecessary opacity layers
+- layout thrashing
+- rebuild-heavy placement logic
+
+Do not sacrifice realism, but do not ignore performance.
+
+==================================================
+DEFINITION OF FAILURE
+==================================================
+
+The task is considered failed if any of the following are true:
+
+- the result looks like a generic shopping app
+- the result relies on GridView-like product arrangement
+- the shelf boards are too thick
+- the shelf wood feels fake, glossy, or decorative
+- the boxes are too sparse
+- small spine clusters are weak or absent
+- the shelf does not feel like physical furniture
+- the screen looks like a prototype
+- sample_assets were not clearly reflected in the result
+- the visual result feels cheap or generic
+
+==================================================
+DEFINITION OF DONE
+==================================================
+
+The task is complete only when all of the following are true:
+
+- HomeScreen immediately looks like a real board game store shelf
+- shelf boards are thin and natural
+- the wood feels like light pine
+- box density feels realistic
+- spine / face / stack are all present and balanced
+- small colorful spine clusters are visibly convincing
+- the result clearly reflects the reference images
+- the UI feels premium on iOS
+- scrolling remains smooth
+- the app does not resemble a standard shopping UI
+- the implementation is not just a placeholder mockup
+- the visual quality is high enough to be considered product-direction-validating
+
+==================================================
+WORKING METHOD
+==================================================
+
+Before coding, think carefully about:
+- shelf thickness
+- material realism
+- density
+- color rhythm
+- small-box spine importance
+- face/stack balance
+- overall premium feel
+
+Then implement with discipline.
+
+Do not rush to the easiest solution.
+Do not generalize into standard UI patterns.
+Do not degrade the task into a typical app screen.
+
+==================================================
+EXPECTED DELIVERABLES
+==================================================
+
+Produce all of the following:
+
+- a high-quality HomeScreen implementation
+- a realistic ShelfRow implementation
+- shelf placement / Shelf Engine logic
+- support for spine / face / stack
+- sample data for games
+- performance-aware rendering
+- a clearly premium visual result
+
+Start by:
+1. reading AGENTS.md
+2. reading pocketplay_shelf_engine_complete_spec_jp.md
+3. inspecting sample_assets
+4. summarizing the visual rules you will follow
+5. then implementing the first high-quality version
+
+Do not stop at low fidelity.
+Do not stop at “good enough”.
+Push until the result convincingly matches the intended shelf experience.
