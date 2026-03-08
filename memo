@@ -1,294 +1,390 @@
 flutter run --release -d 00008110-001E4C9A3E91401E
 
-codex resume --last
+最も重要なのは店頭同等の没入感とUI
+・棚は店頭と同等
+・タップすれば手に取るようなアニメーション等は必須
 
-You are a senior Flutter engineer, UI implementation specialist, and product-quality coding agent.
+このアプリの価値はユーザにジャケット買いを促せること
+そして、Amazon,楽天に誘導することでアフィリエイト収益を狙う
+上記アフィで扱われているかどうかは最終かきで記載するパッケージ情報取得ふくめ必要となる
 
-Your task is to implement the PocketPlay app’s core shelf experience at a production-quality visual level.
+最終はパッケージ画像をどうやって取得するかのロジックが重要
+取得したい内容
+-正面画像
+-側面画像
+-横画像など
+-カテゴリ
+-アフィリエイトURL
+-などなど
 
-This task is design-critical.
-This is not a rough prototype task.
-This is not a generic ecommerce task.
-This is not a placeholder mockup task.
+それに合わせてパッケージを取得し表示
+パッケージ画像がない場合の対応方法は要検討
 
-The product’s main value is the shelf experience itself.
+最終パッケージ取得→firebase保存は裏側で自動処理にしたい
 
-==================================================
-READ THIS FIRST
-==================================================
+パッケージ画像の取得は複数のAPIを使用してでも確実かつ豊富なデータを取得すること
+※このデータ取得と没入感UIがなによりも重要
 
-Before making any code changes, you MUST do the following in this exact order:
+下記は以前の方針であるので参考に
+※デザイン以外の内容を参考に、いまのデザイン感を変える必要はない
 
-1. Read AGENTS.md completely
-2. Read pocketplay_shelf_engine_complete_spec_jp.md completely
-3. Inspect every image inside sample_assets/
-4. Infer the shelf design rules from those references
-5. Summarize the design rules you will follow
-6. Only after that, begin implementation
 
-Do not skip these steps.
-Do not start coding before reading all instructions and references.
+# PocketPlay
+## Codex用 MD 完全仕様書
+### Shelf Engine / リアル店舗棚UI 再現仕様（sample_assets 前提・日本語版）
 
-The repository already contains:
+Version: 1.0
+Target: Codex でそのまま実装を開始するための完全仕様
+Platform: iOS / Android
+Framework: Flutter
+Architecture: StatelessWidget + Riverpod + flutter_hooks + Firebase
+Primary Goal: **JELLY JELLY STORE のようなリアル店舗棚体験を、アプリ内で高品質に再現する**
 
-- AGENTS.md
-- pocketplay_shelf_engine_complete_spec_jp.md
-- sample_assets/
+---
 
-You must treat AGENTS.md and pocketplay_shelf_engine_complete_spec_jp.md as mandatory instructions, not optional references.
+# 0. この仕様書の目的
 
-==================================================
-PROJECT GOAL
-==================================================
+本仕様書は、PocketPlay の中核である **Shelf Engine（棚生成エンジン）** を実装するための Codex 向け完全仕様書である。
+このアプリは「商品一覧UI」を作るのではなく、**実店舗の棚を覗いて回遊する感覚**を再現することが目的である。
 
-PocketPlay is a board game discovery app.
+したがって、実装の優先順位は以下の通りとする。
 
-The core product idea is:
+1. 棚の実在感
+2. 箱画像の実在感
+3. 配置の自然さ
+4. スクロール時の没入感
+5. パフォーマンス
+6. データ自動追加
 
-not Search
-not Filter
-not Compare
-but Discover by browsing a realistic shelf
+---
 
-The UI must feel like browsing a real board game store shelf, inspired by Jelly Jelly Store in Tokyo.
+# 1. 前提条件
 
-This project should create the feeling of:
+## 1.1 プロジェクト直下の sample_assets を使用する
 
-- walking through a real board game store
-- looking at shelves made of light pine wood
-- finding boxes by visual curiosity
-- seeing tightly packed spine boxes, face-out boxes, and stacked boxes
-- feeling warmth, density, and physicality
+Codex は **プロジェクトルート直下に `sample_assets/` フォルダが既に存在する** 前提で実装すること。
+このフォルダには、ユーザーが手動で配置した店舗参考画像・木材テクスチャが入っている。
 
-The result must NOT feel like:
+## 1.2 sample_assets の役割
 
-- a generic shopping app
-- an ecommerce catalog
-- a card list
-- a GridView-based store
-- a placeholder UI concept
-- a low-fidelity developer mockup
+`sample_assets` は以下の用途で使用する。
 
-If the result looks like a normal shopping UI, the task has failed.
+- 棚の空間トーン確認
+- 棚板の厚み確認
+- 木材テクスチャ確認
+- spine 配置（背表紙並び）確認
+- small box spine 配置確認
+- face / stack 混在の確認
+- 暖色照明のトーン確認
 
-==================================================
-SOURCE OF TRUTH
-==================================================
+---
 
-You must strictly follow these files in this order of authority:
+# 2. sample_assets の想定構成
 
-1. AGENTS.md
-2. pocketplay_shelf_engine_complete_spec_jp.md
-3. sample_assets/*
+Codex は以下のファイル名で参照すること。
+もし実際のファイル名が完全一致しない場合でも、**意味が近い画像を探索して使用する処理は行わず**、まずこのファイル名を基準に実装すること。
 
-If there is ambiguity, prefer the interpretation that increases realism of the physical shelf experience.
+```txt
+sample_assets/
+  store_overview_jelly_jelly_store.jpg
+  shelf_structure_reference.jpg
+  shelf_spine_layout_reference.jpg
+  shelf_spine_smallbox_reference.jpg
+  shelf_stack_layout_reference.jpg   # ある場合のみ使用
+  wood_texture_light_pine.jpg
+```
 
-Do not simplify the requirements into standard UI patterns.
+## 2.1 各ファイルの役割
 
-==================================================
-REFERENCE ASSETS
-==================================================
+### `store_overview_jelly_jelly_store.jpg`
+- 店舗全体の空間参考
+- 照明トーン
+- 棚密度
+- 店内のナチュラル感
+- 遠景の雰囲気
 
-Use the images inside sample_assets as visual references.
+### `shelf_structure_reference.jpg`
+- 棚板の厚み
+- 棚の奥行き
+- face 向きの箱配置
+- spine と face の混在
+- 棚の比率
 
-Expected files:
+### `shelf_spine_layout_reference.jpg`
+- spine 配置の密度
+- 背表紙ゲームの幅感
+- ぎっしり詰まった見え方
+- small〜medium box の並べ方
 
-- sample_assets/store_overview_jelly_jelly_store.jpg
-- sample_assets/shelf_structure_reference.jpg
-- sample_assets/shelf_spine_layout_reference.jpg
-- sample_assets/shelf_spine_smallbox_reference.jpg
-- sample_assets/shelf_stack_layout_reference.jpg
-- sample_assets/wood_texture_light_pine.jpg
+### `shelf_spine_smallbox_reference.jpg`
+- 小箱ゲームの spine 並び
+- 幅の細い箱の連続配置
+- カラフルな小箱列
+- 箱間ギャップの少なさ
 
-Use them like this:
+### `shelf_stack_layout_reference.jpg`
+- 横積み（stack）配置の参考
+- 積み箱の重なり
+- stack と face / spine の混在参考
+- ない場合は他の参考画像から近似実装する
 
-sample_assets/store_overview_jelly_jelly_store.jpg
-- overall store atmosphere
-- warmth
-- shelf continuity
-- retail mood
-- realistic space feeling
+### `wood_texture_light_pine.jpg`
+- 棚の木材テクスチャ
+- 明るいパイン材
+- マット質感
+- 節あり
+- 過剰なツヤなし
 
-sample_assets/shelf_structure_reference.jpg
-- shelf board thickness
-- shelf depth
-- ratio of face and spine boxes
-- shelf geometry
-- physical shelf proportions
+---
 
-sample_assets/shelf_spine_layout_reference.jpg
-- medium spine arrangement
-- shelf density
-- packed layout
-- color rhythm of spine boxes
+# 3. 実装ゴール
 
-sample_assets/shelf_spine_smallbox_reference.jpg
-- extremely important
-- small box spine clusters
-- narrow colorful boxes
-- dense small-game shelf structure
-- high shelf realism reference
+PocketPlay の棚UIは、以下を満たすこと。
 
-sample_assets/shelf_stack_layout_reference.jpg
-- horizontal stacked box references
-- mixed shelf arrangement
-- shop-like irregularity
+- 一見して「UIカード一覧」ではなく「実店舗の棚」に見える
+- 棚板が太すぎず、家具として自然に見える
+- 箱がぎっしり並び、店舗らしい密度がある
+- spine / face / stack が自然に混在している
+- 箱はプレースホルダーではなく実在感のあるボードゲーム箱画像を使う
+- スクロールが重くない
+- iOS アプリとして見ても上質である
 
-sample_assets/wood_texture_light_pine.jpg
-- shelf material reference
-- light pine wood
-- matte finish
-- natural grain
-- subtle knots
-- real store fixture feel
+---
 
-You must visually study these references before implementation.
+# 4. デザイン原則
 
-==================================================
-ABSOLUTE DESIGN TARGET
-==================================================
+## 4.1 これは EC UI ではない
 
-The shelf must look like real furniture.
-The boxes must look like real products.
-The layout must look physically arranged, not algorithmically gridded.
-The screen must feel premium and believable.
+禁止する解釈:
 
-A user opening the app should immediately feel:
+- ただの GridView 一覧
+- カード UI
+- 角丸パネルに商品画像を置く構成
+- 棚を単なる背景画像として置く構成
+- 余白が広いモダンEC風の整列レイアウト
 
-“This is a real board game shelf on a phone.”
+目指す方向:
 
-The shelf is not decoration.
-The shelf is the core experience.
+- 実店舗の棚
+- 家具としての棚
+- 箱が主役
+- 店を歩く体験
+- Discovery / Serendipity
 
-==================================================
-CRITICAL DESIGN PRINCIPLES
-==================================================
+## 4.2 棚は主張しすぎない
 
-1. This is not ecommerce UI
+棚は重要だが、主役は **箱画像** である。
+棚は「世界観の舞台」であり、過剰な装飾UIにしないこと。
 
-Do not implement:
-- generic shopping cards
-- product tiles
-- spaced out grid layouts
-- standard catalog UI
-- typical marketplace patterns
+禁止:
 
-This app must feel like a physical store shelf, not a digital storefront.
+- 分厚い木枠
+- 強い光沢
+- 重いビネット
+- 安っぽい疑似スキューモーフィズム
 
-2. Shelf realism is more important than implementation convenience
+---
 
-If there is a conflict between convenience and realism, prioritize realism unless performance becomes unacceptable.
+# 5. 棚のビジュアル仕様
 
-3. Boxes are the hero
+## 5.1 木材
 
-The shelf is important, but the real star is the board game box imagery and the physical arrangement.
+木材は `wood_texture_light_pine.jpg` を基準にする。
 
-Do not overdesign the wood.
-Do not make the shelf too decorative.
-Do not let the shelf overpower the boxes.
+特徴:
+- 明るいパイン材
+- 黄〜薄茶
+- マット
+- 節あり
+- 軽い木目
+- 高級家具ではなくナチュラル店舗什器
 
-4. Density matters
+## 5.2 棚板の厚み
 
-The shelf must feel packed.
-Not cluttered randomly, but packed like a real store.
+棚板は UI 上で **18〜22px** を基準に実装すること。
+絶対に 40px 以上の厚さにしないこと。
+60px 前後の厚さは「UIパネル」に見えるため禁止。
 
-5. Physicality matters
+## 5.3 棚の奥行き感
 
-The arrangement must feel like objects placed on furniture.
-Not cards dropped into a layout engine.
+棚は平面画像ではなく、少なくとも以下のレイヤーで構成する。
 
-==================================================
-STRICT VISUAL RULES
-==================================================
+- 背面（壁 / 奥板）
+- 棚板上面
+- 棚板前縁
+- 箱
+- 接地影
+- 落ち影
 
-Shelf board thickness:
-- must visually feel about 18–22px
-- must not look like thick UI panels
-- must not exceed realistic furniture thickness
-- thick decorative wood slabs are forbidden
+---
 
-Shelf wood:
-- use a light pine wood feeling
-- matte finish
-- natural light yellow-brown tone
-- subtle grain
-- no glossy luxury wood
-- no dark wood unless specifically required later
+# 6. 箱の表示ルール
 
-Box spacing:
-- usually 2–6px
-- avoid wide gaps
-- avoid airy layouts
-- avoid premium-minimal spacing that kills realism
+## 6.1 箱の向きは3種類
 
-Box pose support:
-- spine
-- face
-- stack
+Shelf Engine は必ず以下3種類のポーズを持つこと。
 
-Standard pose ratio:
+### spine
+- 背表紙向き
+- 細長い箱
+- 小箱ゲームに多い
+- もっとも頻度が高い
+
+### face
+- 正面向き
+- メイン訴求箱
+- 視線を止める役割
+- 中〜大箱向け
+
+### stack
+- 横積み
+- 数量感 / 店感 を出す
+- 2〜4個まで
+- 補助的に混ぜる
+
+## 6.2 基本割合
+
+標準棚は以下を基準にする。
+
 - spine: 65%
 - face: 25%
 - stack: 10%
 
-This can vary slightly per shelf, but all three must exist overall.
+棚タイプによって若干変動してよいが、face ばかり・stack ばかりにしないこと。
 
-Small box spine groups:
-- extremely important
-- must be clearly represented
-- must reflect shelf_spine_smallbox_reference.jpg
-- these narrow colorful spine runs are one of the key realism signals
+## 6.3 箱間ギャップ
 
-Lighting:
-- warm store-like light
-- subtle warmth
-- soft shadows
-- gentle depth
-- no excessive orange glow
-- no dramatic cinematic spotlighting
+箱同士の間隔は **2〜6px** を基本とする。
+10px を超える広い空白は禁止。
+実店舗の「詰まっている」感じを優先する。
 
-Shadows:
-- short soft contact shadows
-- restrained drop shadows
-- avoid aggressive BoxShadow use
-- avoid fake floating card shadows
-- avoid shadow-heavy dribbble style
+---
 
-Materials:
-- shelf should feel natural and lightly used
-- not stylized fantasy wood
-- not plastic
-- not over-rendered
+# 7. 参考画像の解釈ルール
 
-==================================================
-THINGS THAT MUST NEVER HAPPEN
-==================================================
+## 7.1 store_overview をどう使うか
 
-Do not:
-- use GridView as the core shelf rendering approach
-- render the main shelf as product cards
-- create rounded rectangle shopping tiles and call them boxes
-- space boxes like a modern catalog
-- build a generic marketplace homepage
-- create large decorative wooden sections that feel like UI panels
-- use fake placeholder colored boxes as a finished result
-- ignore sample_assets
-- ignore AGENTS.md
-- ignore the Japanese spec
-- make the shelf too clean and too empty
-- make the result feel like a prototype
-- choose “easy to code” over “visually correct”
-- stop once something is merely acceptable
+`store_overview_jelly_jelly_store.jpg` は UI そのもののレイアウトを真似るのではなく、以下の把握に使う。
 
-If the result looks generic, keep improving it.
+- 空間の色温度
+- 店全体の雰囲気
+- 棚の高さ感
+- 棚の連続性
+- 奥行きのある売場感
 
-==================================================
-REQUIRED TECH STACK
-==================================================
+## 7.2 shelf_structure_reference をどう使うか
 
-Use Flutter.
+`sample_assets/shelf_structure_reference.jpg` は最重要。
+以下の実装根拠に使う。
 
-Preferred implementation:
+- 棚板の厚み
+- 箱の奥行きの見え方
+- face 表示箱の比率
+- spine と face の混在
+- 棚板の前縁形状
+
+## 7.3 shelf_spine_layout_reference / smallbox をどう使うか
+
+spine 系画像は、以下の設計に直結させる。
+
+- spine 箱の最小幅 / 最大幅
+- 色の連続による棚の賑わい
+- 小箱群の連続配置
+- ぎっしり感
+- face 箱の前後に spine を埋める方法
+
+---
+
+# 8. 画面構成
+
+実装対象の最低画面は以下。
+
+- HomeScreen
+- GameDetailScreen
+
+将来画面:
+- SearchScreen
+- SavedScreen
+- ProfileScreen
+
+ただし MVP では **HomeScreen の完成度を最優先** とする。
+
+---
+
+# 9. HomeScreen 仕様
+
+## 9.1 レイアウト
+
+HomeScreen は縦スクロールで構成する。
+
+上から:
+
+1. App Header
+2. サブコピー
+3. セクションタイトル
+4. ShelfRow
+5. 次セクションタイトル
+6. ShelfRow
+7. 以下繰り返し
+
+## 9.2 ヘッダー
+
+表示内容:
+
+- アプリ名 `PocketPlay`
+- サブコピー `検索ではなく、棚から見つける。`
+
+トーン:
+- iOS ネイティブ風
+- 上質
+- 余白大きめ
+- 見出しは強く、説明は抑える
+
+## 9.3 セクション例
+
+- 今日のおすすめ
+- パーティーゲーム
+- 2人用ゲーム
+- 戦略ゲーム
+- 小箱ゲーム
+- ジャケ買いしたくなる箱
+- アートが強いゲーム
+
+---
+
+# 10. ShelfRow 仕様
+
+## 10.1 高さ
+
+標準高さ: **250〜280px**
+推奨: 264px
+
+## 10.2 幅
+
+画面幅いっぱいに使う。
+左右の外側 padding は 16px。
+棚の内側余白は 8〜12px 程度。
+
+## 10.3 構成レイヤー
+
+ShelfRow は Stack ベースで、次の順番で描画する。
+
+1. 背景（奥板 / 背面壁）
+2. 棚板影
+3. 棚板木材
+4. 箱の接地影
+5. 箱
+6. 手前に出る箱の影
+7. オーバーレイ演出（必要最小限）
+
+---
+
+# 11. 実装技術ルール
+
+## 11.1 Flutter 構成
+
+必須:
+
 - StatelessWidget
 - Riverpod
 - flutter_hooks
@@ -300,294 +396,514 @@ Preferred implementation:
 - RepaintBoundary
 - cached_network_image
 
-Do not rely on generic GridView-based product UIs.
+禁止:
+- StatefulWidget を中心とした雑な状態管理
+- BoxShadow 多用による重い描画
+- GridView ベースの代替実装
+- 画像未最適化のまま大量描画
 
-Use stack-based shelf composition with separate layers.
+## 11.2 スクロール監視
 
-==================================================
-ARCHITECTURE REQUIREMENTS
-==================================================
+`flutter_hooks` で `ScrollController` を扱う。
+スクロールオフセットは Riverpod provider に流し、各 ShelfRow が参照する。
 
-You must keep the implementation structured and production-minded.
+---
 
-Use:
-- declarative widgets
-- provider-based state and data flow
-- placement logic separated from widget rendering
-- reusable shelf rendering components
+# 12. データモデル
 
-Expected architecture:
-- Shelf layout logic in a dedicated service or engine layer
-- Home screen rendering separate from placement generation
-- widgets focused on rendering, not random logic
-- stable seeded placement generation
+## 12.1 Game
 
-Avoid:
-- heavy logic directly inside widget build methods
-- repeated random generation every frame
-- one-file spaghetti implementation
-- ad hoc uncontrolled UI state
+```dart
+class Game {
+  final String id;
+  final String title;
+  final String imageUrl;
+  final String? spineImageUrl;
+  final int playersMin;
+  final int playersMax;
+  final int playTime;
+  final double rating;
+  final List<String> tags;
+  final double widthRatio;
+  final double heightRatio;
+  final bool isSmallBox;
+  final bool isWideBox;
+  final bool isTallBox;
+}
+```
 
-==================================================
-IMPLEMENTATION PRIORITIES
-==================================================
+### 補足
+- `imageUrl` は正面画像
+- `spineImageUrl` はある場合のみ使用
+- `widthRatio` / `heightRatio` で箱比率を管理
+- 小箱・大箱・横長箱などを判定できるようにする
 
-Implement in this order:
+## 12.2 Placement
 
-Phase 1: understanding
-1. Read AGENTS.md
-2. Read pocketplay_shelf_engine_complete_spec_jp.md
-3. Inspect sample_assets
-4. Summarize visual constraints and implementation plan
+```dart
+enum BoxPose { spine, face, stack }
 
-Phase 2: app structure
-5. Analyze repository structure
-6. Create or refine HomeScreen
-7. Create premium section header style
-8. Create realistic ShelfRow widget structure
+class Placement {
+  final String gameId;
+  final BoxPose pose;
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+  final double rotationZ;
+  final double depth;
+  final int zIndex;
+  final String? stackGroupId;
+  final bool isHeroCandidate;
+}
+```
 
-Phase 3: shelf foundation
-9. Render shelf background and shelf board
-10. Apply wood texture reference
-11. Ensure thin board geometry
-12. Establish proper vertical and horizontal proportions
+---
 
-Phase 4: shelf engine
-13. Create Game model if missing
-14. Create Placement model
-15. Implement shelf placement service
-16. Implement seeded stable randomness
-17. Implement spine layout logic
-18. Implement face layout logic
-19. Implement stack layout logic
-20. Ensure dense but natural arrangement
+# 13. Shelf Engine の責務
 
-Phase 5: realism pass
-21. Add real box imagery rendering
-22. Add contact shadows
-23. Add restrained depth and z-order feeling
-24. Tune spacing to match references
-25. Tune size distribution
-26. Ensure small spine clusters are convincing
-27. Compare result visually against sample_assets and refine
+Shelf Engine は以下を担う。
 
-Phase 6: interaction
-28. Add restrained tap animation
-29. Add Hero transition to detail
-30. Keep the interaction premium and subtle
+- ゲームデータから自然な棚配置を生成
+- 棚の幅に応じて箱の数と比率を調整
+- spine / face / stack を自動選択
+- 似た箱幅の連続や極端な偏りを抑制
+- ランダムだが安定した配置を作る
+- 描画順を制御する
+- ヒーローとなる face 箱を適度に混ぜる
 
-Phase 7: performance
-31. Add RepaintBoundary appropriately
-32. Prevent unnecessary rebuilds
-33. Cache images
-34. Precache only what is needed
-35. Keep scrolling smooth
+---
 
-Do not jump directly to a rough mockup and stop there.
+# 14. 配置アルゴリズム
 
-==================================================
-HOME SCREEN EXPECTATION
-==================================================
+## 14.1 ランダムは seed 固定
 
-The HomeScreen is the most important screen in the entire app.
+各棚は毎回見た目が激変しないよう、seed 固定で生成する。
 
-It must:
-- immediately communicate the product’s identity
-- feel premium
-- feel tactile
-- show multiple shelf sections
-- avoid generic storefront patterns
+```txt
+seed = hash(shelfId + shelfIndex + displayMode)
+```
 
-It should include:
-- a premium app title area
-- a calm supporting subtitle
-- section headings
-- multiple shelf rows
+## 14.2 基本フロー
 
-Possible section examples:
-- 今日のおすすめ
-- パーティーゲーム
-- 2人用ゲーム
-- 戦略ゲーム
-- 小箱ゲーム
-- ジャケ買いしたくなる箱
+1. 対象棚に入れるゲーム候補を取得
+2. shelf type に応じて箱カテゴリを優先選択
+3. ヒーロー箱（face 候補）を 1〜3 個抽出
+4. small box spine 群を挿入
+5. stack 候補を 0〜2 箇所挿入
+6. 空き幅を spine で詰める
+7. 軽い回転・前後差・zIndex を付ける
+8. 最終描画データを Placement に変換
 
-But content labels are secondary.
-The visual truth of the shelf is primary.
+## 14.3 配置の自然さルール
 
-==================================================
-SHELF ENGINE EXPECTATION
-==================================================
+- 同じ幅の箱を長く連続させすぎない
+- face 箱は隣接しすぎない
+- stack は棚の左右端または face の隣に置くことが多い
+- spine 小箱は群として扱う
+- face 箱が必ずしも中央とは限らない
+- 少しだけ前後関係をつける
 
-The Shelf Engine is the heart of this product.
+---
 
-It must generate layouts that feel:
-- physical
-- dense
-- natural
-- slightly irregular
-- believable
-- curated, not random chaos
+# 15. spine 実装ルール
 
-The output must NOT feel:
-- symmetric
-- repetitive
-- machine-gridded
-- too clean
-- too sparse
+## 15.1 small box を重視
 
-Natural arrangement rules:
-- do not place too many face boxes next to each other
-- do not create long mechanical runs of equal widths
-- use small spine groups to fill and texture the shelf
-- place stacks sparingly
-- allow slight irregularity
-- maintain strong density
-- keep visual rhythm varied
+`sample_assets/shelf_spine_smallbox_reference.jpg` を参考に、
+small box spine は以下を満たす。
 
-The result should feel like a real person arranged a board game shelf.
+- 幅 28〜44px 程度
+- 高さ 78〜110px 程度
+- カラフル
+- 密度が高い
+- 2〜6px 間隔
 
-==================================================
-DETAIL SCREEN EXPECTATION
-==================================================
+## 15.2 medium spine
 
-The detail screen should feel like the user picked a game box up from the shelf.
+`shelf_spine_layout_reference.jpg` を参考に、
+やや幅のある spine 箱も混ぜる。
 
-Need:
-- Hero transition from shelf item
-- calm premium layout
-- main box image
-- title
-- player count
-- play time
-- rating
-- optional CTA buttons
+- 幅 40〜64px 程度
+- 高さ 96〜132px 程度
 
-Do not turn the detail screen into a generic product page.
-It should remain connected to the shelf world.
+## 15.3 spine 表示画像
 
-==================================================
-ANIMATION RULES
-==================================================
+優先順位:
 
-Tap behavior:
-- subtle press-in
-- subtle lift
-- premium restrained Hero motion
+1. `spineImageUrl`
+2. `imageUrl` をトリミングして spine 風に表示
+3. タイトル縦書きプレースホルダー（最終手段）
 
-Allowed:
-- small scale change
-- slight elevation shift
-- mild perspective if tasteful
+ただし 3 は原則回避。
+ダミー感が強くなるため、可能な限り 1 または 2 を使う。
 
-Not allowed:
-- bouncy toy-like movement
-- exaggerated 3D flips
-- loud motion
-- gimmicky animation
-- app-store-template transitions
+---
 
-Everything should feel premium and controlled.
+# 16. face 実装ルール
 
-==================================================
-PERFORMANCE RULES
-==================================================
+## 16.1 役割
 
-The UI must remain smooth.
+face 箱は棚の中で「視線が止まる主役」となる。
+ただし並べすぎると UI カード棚になるため、数は抑える。
 
-Required:
-- use RepaintBoundary for shelf rows where beneficial
-- avoid placement regeneration every build
-- cache box images
-- only precache nearby images
-- keep painting cost controlled
+## 16.2 数量
 
-Avoid:
-- unbounded image preloading
-- expensive shadows on every element without need
-- excessive clipping
-- unnecessary opacity layers
-- layout thrashing
-- rebuild-heavy placement logic
+1棚あたり 1〜3 個を基本とする。
 
-Do not sacrifice realism, but do not ignore performance.
+## 16.3 サイズ目安
 
-==================================================
-DEFINITION OF FAILURE
-==================================================
+- 中箱: 84〜116px
+- 大箱: 120〜156px
+- 画面幅と棚タイプで調整可
 
-The task is considered failed if any of the following are true:
+## 16.4 表示
 
-- the result looks like a generic shopping app
-- the result relies on GridView-like product arrangement
-- the shelf boards are too thick
-- the shelf wood feels fake, glossy, or decorative
-- the boxes are too sparse
-- small spine clusters are weak or absent
-- the shelf does not feel like physical furniture
-- the screen looks like a prototype
-- sample_assets were not clearly reflected in the result
-- the visual result feels cheap or generic
+- 実画像を使用
+- 角丸はごく小さく、または無し
+- 軽い落ち影
+- 少しだけ手前に出す
+- zIndex 高め
 
-==================================================
-DEFINITION OF DONE
-==================================================
+---
 
-The task is complete only when all of the following are true:
+# 17. stack 実装ルール
 
-- HomeScreen immediately looks like a real board game store shelf
-- shelf boards are thin and natural
-- the wood feels like light pine
-- box density feels realistic
-- spine / face / stack are all present and balanced
-- small colorful spine clusters are visibly convincing
-- the result clearly reflects the reference images
-- the UI feels premium on iOS
-- scrolling remains smooth
-- the app does not resemble a standard shopping UI
-- the implementation is not just a placeholder mockup
-- the visual quality is high enough to be considered product-direction-validating
+## 17.1 役割
 
-==================================================
-WORKING METHOD
-==================================================
+stack は「店舗っぽさ」「在庫感」「量感」を出すための補助表現。
+多用禁止。
 
-Before coding, think carefully about:
-- shelf thickness
-- material realism
-- density
-- color rhythm
-- small-box spine importance
-- face/stack balance
-- overall premium feel
+## 17.2 数量
 
-Then implement with discipline.
+- 1棚に 0〜2 箇所
+- 1 stack グループは 2〜4 箱
 
-Do not rush to the easiest solution.
-Do not generalize into standard UI patterns.
-Do not degrade the task into a typical app screen.
+## 17.3 配置位置
 
-==================================================
-EXPECTED DELIVERABLES
-==================================================
+- 端寄り
+- face 箱の横
+- spine 群の切れ目
 
-Produce all of the following:
+## 17.4 影
 
-- a high-quality HomeScreen implementation
-- a realistic ShelfRow implementation
-- shelf placement / Shelf Engine logic
-- support for spine / face / stack
-- sample data for games
-- performance-aware rendering
-- a clearly premium visual result
+stack は重なりによる影を少し強める。
+ただし影を重くしすぎないこと。
 
-Start by:
-1. reading AGENTS.md
-2. reading pocketplay_shelf_engine_complete_spec_jp.md
-3. inspecting sample_assets
-4. summarizing the visual rules you will follow
-5. then implementing the first high-quality version
+---
 
-Do not stop at low fidelity.
-Do not stop at “good enough”.
-Push until the result convincingly matches the intended shelf experience.
+# 18. 光と影
+
+## 18.1 色温度
+
+参考画像に合わせて **暖色寄り** とする。
+極端なオレンジ照明にはしない。
+
+推奨ハイライト:
+- `#F7D7A8` 付近の暖色を弱く
+
+## 18.2 接地影
+
+箱が棚板に接する影は短く柔らかいものにする。
+接地影がないと浮いて見える。
+
+## 18.3 落ち影
+
+face 箱には軽い落ち影を付与する。
+
+目安:
+- blur: 12〜18
+- opacity: 0.12〜0.22
+- y: 4〜8
+
+## 18.4 禁止
+
+- 強すぎる BoxShadow
+- 黒すぎる影
+- 影の二重掛け乱発
+- 影だけで立体感を出そうとすること
+
+---
+
+# 19. パララックス
+
+## 19.1 目的
+
+スクロール時に棚を「平面の一覧」ではなく「空間」として感じさせる。
+
+## 19.2 レイヤー速度
+
+- 背景: 0.2
+- 棚板: 0.6
+- 箱: 1.0
+
+## 19.3 実装
+
+各 ShelfRow はスクロール量を受け取り、背景・棚板に微細なオフセット差をつける。
+過剰な動きは禁止。
+「意識すると分かる程度」の弱い表現にする。
+
+---
+
+# 20. アニメーション
+
+## 20.1 タップ時
+
+1. 押し込み: scale 0.985 / 80ms
+2. 浮き上がり: shadow 増加 / 120ms
+3. Hero 遷移: 220ms
+4. 遷移中に rotateY を 0.03〜0.06 程度
+
+## 20.2 禁止
+
+- バネが強すぎる
+- 大げさな3D回転
+- 安っぽいポップアニメ
+- カードUIっぽいリフト演出
+
+---
+
+# 21. パフォーマンス要件
+
+## 21.1 必須
+
+- ShelfRow ごとに `RepaintBoundary`
+- 画像キャッシュ
+- 次の 1 段だけ `precacheImage`
+- 可視範囲外の重い計算を避ける
+- Placement は事前計算
+
+## 21.2 やってはいけないこと
+
+- 毎 build で Placement 再生成
+- 画像の無制限先読み
+- すべての箱に高コスト shadow
+- Clip 系の乱用
+- 大量の Opacity widget
+
+---
+
+# 22. データ取得と自動追加
+
+Shelf Engine は UI コアだが、データ追加も最終的に自動化する。
+ただし MVP ではまず UI 完成を優先する。
+
+## 22.1 最終構成
+
+- BoardGameGeek API
+- Amazon Product Advertising API
+- 楽天商品検索 API
+- Firestore
+
+## 22.2 MVP 段階
+
+まずは Firestore またはローカル JSON でダミー実データを持つ。
+箱画像の実在感を優先し、**ダミー色箱で進めないこと**。
+
+---
+
+# 23. アセットの扱い
+
+## 23.1 sample_assets の利用方法
+
+`sample_assets` はあくまで **参考画像** である。
+アプリ本番表示でこれらの画像をそのまま UI に貼り込むのではなく、
+ここから読み取ったルールをもとに棚UIを構築すること。
+
+## 23.2 assets へコピーしてよいもの
+
+`wood_texture_light_pine.jpg` は、実装時に `assets/textures/` へコピーして本番利用してよい。
+
+推奨:
+
+```txt
+assets/
+  textures/
+    wood_texture_light_pine.jpg
+```
+
+---
+
+# 24. 推奨フォルダ構成
+
+```txt
+lib/
+  app/
+  core/
+    constants/
+    theme/
+    utils/
+  data/
+    models/
+    repositories/
+    services/
+  features/
+    home/
+      presentation/
+        screens/
+        widgets/
+      application/
+      domain/
+    game_detail/
+      presentation/
+      application/
+      domain/
+  shelf_engine/
+    models/
+    services/
+    widgets/
+    providers/
+  shared/
+    widgets/
+
+assets/
+  textures/
+    wood_texture_light_pine.jpg
+
+sample_assets/
+  store_overview_jelly_jelly_store.jpg
+  shelf_structure_reference.jpg
+  shelf_spine_layout_reference.jpg
+  shelf_spine_smallbox_reference.jpg
+  shelf_stack_layout_reference.jpg
+  wood_texture_light_pine.jpg
+```
+
+---
+
+# 25. Riverpod provider 設計
+
+## 25.1 例
+
+- `homeSectionsProvider`
+- `gamesByShelfProvider(shelfId)`
+- `shelfPlacementsProvider(shelfId, shelfIndex)`
+- `scrollOffsetProvider`
+- `selectedGameProvider`
+
+## 25.2 原則
+
+- UI は provider から表示データを受け取るだけ
+- Placement 計算は service 層
+- UI 層にランダムロジックを書かない
+
+---
+
+# 26. 実装タスク分解
+
+## Phase 1: 見た目の土台
+1. `sample_assets` の画像確認
+2. wood texture を assets に配置
+3. HomeScreen の骨組み作成
+4. ShelfRow の Stack レイアウト作成
+5. 棚板描画作成
+
+## Phase 2: Shelf Engine
+6. Game / Placement モデル作成
+7. spine / face / stack 配置アルゴリズム実装
+8. seed 固定ランダム実装
+9. zIndex 制御実装
+10. 小箱 spine 群ロジック作成
+
+## Phase 3: 画像と質感
+11. 実箱画像表示
+12. 接地影 / 落ち影調整
+13. テクスチャ適用
+14. パララックス追加
+
+## Phase 4: 遷移
+15. タップ演出
+16. Hero 遷移
+17. GameDetailScreen
+
+## Phase 5: 最適化
+18. RepaintBoundary
+19. precache
+20. build / layout コスト削減
+
+---
+
+# 27. コード生成時の禁止事項
+
+Codex は以下をやってはいけない。
+
+- GridView で代替
+- 色付きプレースホルダー箱で完成扱い
+- 太い木枠のカード風棚
+- 角丸だらけの箱
+- 余白の広いミニマルECデザイン
+- 参考画像を無視した一般的なショッピングUI
+- パフォーマンスを考慮しない無制限描画
+
+---
+
+# 28. Codex への最終指示文
+
+以下をタスク冒頭に明示すること。
+
+```txt
+Build a realistic board game shelf UI inspired by Jelly Jelly Store.
+
+Important:
+- The project root already contains a sample_assets folder.
+- Use those reference images to reproduce shelf density, wood texture, spine layout, and warm store atmosphere.
+- This is NOT a generic ecommerce grid UI.
+- It must feel like a real store shelf.
+- Prioritize realism of shelf layout and real board game box imagery.
+- Use thin shelf boards, tightly packed boxes, and mixed box poses (spine / face / stack).
+- Prefer Flutter Stack-based rendering over card/grid layouts.
+```
+
+---
+
+# 29. 受け入れ条件（Definition of Done）
+
+以下をすべて満たしたら完了とみなす。
+
+- HomeScreen を開いた瞬間、棚が「UIカード」ではなく「実店舗棚」に見える
+- 棚板が薄く自然
+- 箱がぎっしり詰まっている
+- spine / face / stack が自然に混在している
+- 小箱 spine 群が参考画像に近い
+- 木材が明るいパイン調
+- スクロールが重くない
+- 遷移が気持ちよい
+- ダミー箱でごまかしていない
+
+---
+
+# 30. 追加メモ
+
+## 30.1 最重要素材
+
+このプロジェクトで最重要なのは以下。
+
+1. `shelf_structure_reference.jpg`
+2. `shelf_spine_smallbox_reference.jpg`
+3. `wood_texture_light_pine.jpg`
+
+## 30.2 優先順位
+
+MVP の正しい順番:
+
+1. 棚UIの見た目を完成
+2. 箱配置を自然にする
+3. 実画像を入れる
+4. 遷移を付ける
+5. データ自動追加に進む
+
+データ自動追加より **棚体験の完成が先**。
+
+---
+
+# 31. 最終結論
+
+PocketPlay の差別化は検索や比較ではなく、**店の棚を歩く感覚の再現** にある。
+Shelf Engine は単なるレイアウトロジックではなく、このプロダクトの中核体験そのものである。
+
+Codex はこの仕様を最優先で実装し、
+一般的な商品一覧UIではなく、**JELLY JELLY STORE に近いリアル店舗棚UI** を再現すること。
+
+---
+# END
+
