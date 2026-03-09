@@ -4,12 +4,7 @@ import '../data/models/game.dart';
 
 enum BoxPose { spine, face, stack }
 
-// POP card types — different physical forms seen in real stores
-enum PopType {
-  stand,    // vertical card standing between books, leaning slightly
-  plate,    // horizontal card lying on shelf in front row
-  lean,     // A6 portrait, noticeably leaning against adjacent book
-}
+enum PopType { stand, plate, lean }
 
 class PlacedBox {
   const PlacedBox({
@@ -37,16 +32,16 @@ class PlacedPop {
   final int seed;
 }
 
-// ── geometry ─────────────────────────────────────────────────────────────────
-const double kRowHeight = 230.0;
-const double kBoardH    = 18.0;
+// ── geometry ──────────────────────────────────────────────────────────────────
+const double kShelfTopH = 22.0;  // 棚板の上面（奥行き面）← NEW
+const double kRowHeight = 210.0; // 本エリア高さ
+const double kBoardH    = 14.0;  // 棚板前面の厚み
 const double kPillarW   = 26.0;
 
-// POP geometry by type
 const Map<PopType, Size> kPopSize = {
-  PopType.stand: Size(44.0, 92.0),   // tall narrow card
-  PopType.plate: Size(88.0, 28.0),   // wide flat card
-  PopType.lean:  Size(52.0, 82.0),   // A6 portrait, more tilt
+  PopType.stand: Size(44.0, 92.0),
+  PopType.plate: Size(88.0, 28.0),
+  PopType.lean:  Size(52.0, 82.0),
 };
 
 class ShelfLayoutEngine {
@@ -118,9 +113,7 @@ class ShelfLayoutEngine {
           tilt: (rng.nextDouble() - 0.5) * 0.016, zIndex: zi,
         ));
         final bigGap = rng.nextDouble() < 0.08;
-        cursor += sw + (bigGap
-            ? _gap(rng, 22.0, 55.0)
-            : _gap(rng, 0.0, 1.5));
+        cursor += sw + (bigGap ? _gap(rng, 22.0, 55.0) : _gap(rng, 0.0, 1.5));
       }
       slot++; zi++;
       if (cursor > wallWidth + 100) break;
@@ -128,15 +121,10 @@ class ShelfLayoutEngine {
     return result;
   }
 
-  // Generate POP cards for a row: 1–2 cards, random positions, random types
-  // Positions are staggered so they never stack vertically across rows
   static List<PlacedPop> generatePops({
-    required String label,
-    required int seed,
-    required double wallWidth,
+    required String label, required int seed, required double wallWidth,
   }) {
     final rng = math.Random(seed ^ 0xC4AD);
-    // 0–2 POPs per row (weighted: 0=15%, 1=55%, 2=30%)
     final roll = rng.nextDouble();
     final count = roll < 0.15 ? 0 : roll < 0.70 ? 1 : 2;
     if (count == 0) return [];
@@ -146,20 +134,16 @@ class ShelfLayoutEngine {
     final usedX  = <double>[];
 
     for (int i = 0; i < count; i++) {
-      // Pick a non-overlapping x position
       double x;
       int tries = 0;
       do {
-        // Distribute across wall, bias away from edges
         x = wallWidth * (0.08 + rng.nextDouble() * 0.84);
         tries++;
       } while (tries < 20 && usedX.any((ux) => (ux - x).abs() < 120));
       usedX.add(x);
-
-      final type = types[rng.nextInt(types.length)];
       result.add(PlacedPop(
-        label: label, type: type, x: x,
-        seed: seed ^ (i * 0x7F3A),
+        label: label, type: types[rng.nextInt(types.length)],
+        x: x, seed: seed ^ (i * 0x7F3A),
       ));
     }
     return result;
@@ -167,10 +151,10 @@ class ShelfLayoutEngine {
 
   static double _faceH(BoxSize s) {
     switch (s) {
-      case BoxSize.tiny:   return kRowHeight * 0.48;
-      case BoxSize.small:  return kRowHeight * 0.60;
-      case BoxSize.medium: return kRowHeight * 0.72;
-      case BoxSize.large:  return kRowHeight * 0.82;
+      case BoxSize.tiny:   return kRowHeight * 0.50;
+      case BoxSize.small:  return kRowHeight * 0.62;
+      case BoxSize.medium: return kRowHeight * 0.74;
+      case BoxSize.large:  return kRowHeight * 0.84;
     }
   }
 
@@ -185,10 +169,10 @@ class ShelfLayoutEngine {
 
   static double _spineH(BoxSize s, math.Random rng) {
     switch (s) {
-      case BoxSize.tiny:   return kRowHeight * (0.42 + rng.nextDouble() * 0.14);
-      case BoxSize.small:  return kRowHeight * (0.50 + rng.nextDouble() * 0.16);
-      case BoxSize.medium: return kRowHeight * (0.60 + rng.nextDouble() * 0.16);
-      case BoxSize.large:  return kRowHeight * (0.68 + rng.nextDouble() * 0.15);
+      case BoxSize.tiny:   return kRowHeight * (0.44 + rng.nextDouble() * 0.14);
+      case BoxSize.small:  return kRowHeight * (0.52 + rng.nextDouble() * 0.16);
+      case BoxSize.medium: return kRowHeight * (0.62 + rng.nextDouble() * 0.16);
+      case BoxSize.large:  return kRowHeight * (0.70 + rng.nextDouble() * 0.14);
     }
   }
 

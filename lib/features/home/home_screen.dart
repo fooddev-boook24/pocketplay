@@ -139,9 +139,27 @@ class _StoreContent extends StatefulWidget {
 class _StoreContentState extends State<_StoreContent> {
   final _tc = TransformationController();
   bool _initialized = false;
+  double _viewportOffset = 0.0;
 
   @override
-  void dispose() { _tc.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    _tc.addListener(_onTransform);
+  }
+
+  @override
+  void dispose() { _tc.removeListener(_onTransform); _tc.dispose(); super.dispose(); }
+
+  void _onTransform() {
+    // TransformationController の行列からスクロールX位置を取得
+    // matrix[12] = -translateX（wall空間でのカメラ左端X）
+    final tx = -_tc.value.getTranslation().x;
+    final scale = _tc.value.getMaxScaleOnAxis();
+    final offset = tx / scale;
+    if ((offset - _viewportOffset).abs() > 0.5) {
+      setState(() { _viewportOffset = offset; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -157,11 +175,10 @@ class _StoreContentState extends State<_StoreContent> {
           child: _AppTitle(),
         ),
         Expanded(
-          child: LayoutBuilder(builder: (ctx, _) {
+          child: LayoutBuilder(builder: (ctx, constraints) {
             if (!_initialized) {
               _initialized = true;
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                // Start at left edge of shelf (x=0 of the wall)
                 _tc.value = Matrix4.identity();
               });
             }
@@ -170,14 +187,14 @@ class _StoreContentState extends State<_StoreContent> {
               minScale: 0.38,
               maxScale: 2.8,
               constrained: false,
-              // Boundary = shelf edges. Small vertical slack only.
-              // horizontalmargin=0 means wall left/right edge IS the limit
               boundaryMargin: const EdgeInsets.symmetric(
                   horizontal: 0, vertical: 60),
               child: ShelfWall(
                 games: widget.games,
                 rows: kShelfRows,
                 wallWidth: wallW,
+                viewportOffset: _viewportOffset,
+                viewportWidth:  screenW,
               ),
             );
           }),

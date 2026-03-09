@@ -1,5 +1,11 @@
 flutter run --release -d 00008110-001E4C9A3E91401E
 
+
+import 'package:flutter/painting.dart';
+claude --continue
+
+/terminal-setup
+
 最も重要なのは店頭同等の没入感とUI
 ・棚は店頭と同等
 ・タップすれば手に取るようなアニメーション等は必須
