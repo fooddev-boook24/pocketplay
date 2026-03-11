@@ -52,73 +52,110 @@ class ShelfLayoutEngine {
     required int row,
     required double wallWidth,
     required math.Random rng,
+    List<double>? pilXs,
+  }) {
+    if (pilXs != null && pilXs.length >= 2) {
+      final result = <PlacedBox>[];
+      int gi = rng.nextInt(games.length);
+      int zi = 0;
+      for (int bay = 0; bay < pilXs.length - 1; bay++) {
+        final bayStart = pilXs[bay] + kPillarW;
+        final bayEnd   = pilXs[bay + 1];
+        final bayW     = bayEnd - bayStart;
+        if (bayW < 20) continue;
+        final (placed, nextGi, nextZi) = _placeBay(
+          games: games, row: row,
+          startX: bayStart, bayW: bayW,
+          gi: gi, zi: zi, rng: rng,
+        );
+        result.addAll(placed);
+        gi = nextGi;
+        zi = nextZi;
+      }
+      return result;
+    }
+    return _placeBay(
+      games: games, row: row,
+      startX: 0, bayW: wallWidth,
+      gi: rng.nextInt(games.length), zi: 0, rng: rng,
+    ).$1;
+  }
+
+  static (List<PlacedBox>, int, int) _placeBay({
+    required List<Game> games,
+    required int row,
+    required double startX,
+    required double bayW,
+    required int gi,
+    required int zi,
+    required math.Random rng,
   }) {
     final result = <PlacedBox>[];
-    double cursor = 40.0 + rng.nextDouble() * 30;
-    int gi = rng.nextInt(games.length);
-    int zi = 0;
+    double cursor = 4.0 + rng.nextDouble() * 14;
 
-    final estSlots = (wallWidth / 45).ceil();
+    final estSlots = (bayW / 45).ceil().clamp(2, 20);
     final faceSlots  = <int>{};
     final stackSlots = <int>{};
 
-    int nextFace = 2 + rng.nextInt(2);
+    int nextFace = 1 + rng.nextInt(2);
     while (nextFace < estSlots) {
       faceSlots.add(nextFace);
-      nextFace += 4 + rng.nextInt(4);
+      nextFace += 3 + rng.nextInt(4);
     }
-    for (int s = 0; s < 1 + rng.nextInt(2); s++) {
-      int p = 3 + rng.nextInt(math.max(1, estSlots - 6));
+    for (int s = 0; s < rng.nextInt(2); s++) {
+      int p = 2 + rng.nextInt(math.max(1, estSlots - 4));
       while (faceSlots.contains(p) || stackSlots.contains(p)) p++;
       stackSlots.add(p);
     }
 
     int slot = 0;
-    while (cursor < wallWidth - 60) {
+    while (true) {
       final game = games[gi % games.length];
-      gi++;
 
       if (faceSlots.contains(slot)) {
-        cursor += _gap(rng, 8.0, 18.0);
+        cursor += _gap(rng, 6.0, 14.0);
         final h = _faceH(game.size);
         final w = h * game.faceAspect;
+        if (cursor + w > bayW - 4) break;
         result.add(PlacedBox(
           game: game, pose: BoxPose.face,
-          x: cursor, row: row, width: w, height: h,
+          x: startX + cursor, row: row, width: w, height: h,
           tilt: (rng.nextDouble() - 0.5) * 0.005, zIndex: zi + 5,
         ));
-        cursor += w + _gap(rng, 14.0, 28.0);
+        cursor += w + _gap(rng, 12.0, 24.0);
       } else if (stackSlots.contains(slot)) {
-        cursor += _gap(rng, 6.0, 14.0);
+        cursor += _gap(rng, 4.0, 10.0);
         final count = 2 + rng.nextInt(2);
-        final sw = 78.0 + rng.nextDouble() * 30;
-        final lh = 20.0 + rng.nextDouble() * 7;
+        final sw = math.min(70.0 + rng.nextDouble() * 24, bayW - cursor - 8);
+        if (sw < 30) break;
+        final lh = 18.0 + rng.nextDouble() * 7;
         for (int s = 0; s < count; s++) {
           result.add(PlacedBox(
             game: games[(gi + s) % games.length],
             pose: BoxPose.stack,
-            x: cursor, row: row, width: sw, height: lh,
+            x: startX + cursor, row: row, width: sw, height: lh,
             tilt: (rng.nextDouble() - 0.5) * 0.003,
             zIndex: zi + s, stackLayer: s, stackTotal: count,
           ));
         }
-        cursor += sw + _gap(rng, 12.0, 22.0);
+        cursor += sw + _gap(rng, 10.0, 20.0);
         gi += count - 1; zi += count;
       } else {
         final sw = _spineW(game.size, rng);
+        if (cursor + sw > bayW - 4) break;
         final sh = _spineH(game.size, rng);
         result.add(PlacedBox(
           game: game, pose: BoxPose.spine,
-          x: cursor, row: row, width: sw, height: sh,
+          x: startX + cursor, row: row, width: sw, height: sh,
           tilt: (rng.nextDouble() - 0.5) * 0.016, zIndex: zi,
         ));
         final bigGap = rng.nextDouble() < 0.08;
         cursor += sw + (bigGap ? _gap(rng, 22.0, 55.0) : _gap(rng, 0.0, 1.5));
       }
-      slot++; zi++;
-      if (cursor > wallWidth + 100) break;
+      slot++; gi++; zi++;
+      if (cursor > bayW - 4) break;
     }
-    return result;
+    return (result, gi, zi);
   }
 
   static List<PlacedPop> generatePops({
