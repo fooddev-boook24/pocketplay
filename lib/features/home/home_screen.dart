@@ -140,6 +140,7 @@ class _StoreContentState extends State<_StoreContent> {
   final _tc = TransformationController();
   bool _initialized = false;
   double _viewportOffset = 0.0;
+  double _viewportScale  = 1.0;
 
   @override
   void initState() {
@@ -151,13 +152,15 @@ class _StoreContentState extends State<_StoreContent> {
   void dispose() { _tc.removeListener(_onTransform); _tc.dispose(); super.dispose(); }
 
   void _onTransform() {
-    // TransformationController の行列からスクロールX位置を取得
-    // matrix[12] = -translateX（wall空間でのカメラ左端X）
     final tx = -_tc.value.getTranslation().x;
     final scale = _tc.value.getMaxScaleOnAxis();
     final offset = tx / scale;
-    if ((offset - _viewportOffset).abs() > 0.5) {
-      setState(() { _viewportOffset = offset; });
+    if ((offset - _viewportOffset).abs() > 0.5 ||
+        (scale - _viewportScale).abs() > 0.01) {
+      setState(() {
+        _viewportOffset = offset;
+        _viewportScale  = scale;
+      });
     }
   }
 
@@ -195,6 +198,7 @@ class _StoreContentState extends State<_StoreContent> {
                 wallWidth: wallW,
                 viewportOffset: _viewportOffset,
                 viewportWidth:  screenW,
+                viewportScale:  _viewportScale,
               ),
             );
           }),

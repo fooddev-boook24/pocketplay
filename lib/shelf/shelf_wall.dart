@@ -37,11 +37,12 @@ import '../data/models/game.dart';
 //   4. _PillarFacePainter   柱正面
 // ══════════════════════════════════════════════════════════════════
 
-const double _kTopH       = 17.0; // 天板上面（実測17pt）
-const double _kLightH     =  3.0; // LEDライン本体（実測3pt）
-const double _kGlowH      =  4.0; // LEDグロー（上下合計、描画で処理）
-const double _kUndersideH =  8.0; // 横柱底面（後壁に溶け込む）
-const double _kShelfH     = _kTopH + _kLightH + _kGlowH + _kUndersideH; // 32pt
+const double _kTopH       = kPillarW; // ① 上面：縦柱と同じ26pt（固定）
+const double _kFaceH      =  6.0;     // ② 前面エッジ
+const double _kLightH     =  5.0;     // ③ LED
+const double _kGlowH      =  4.0;     // LEDグロー
+const double _kUndersideH =  8.0;     // 後壁なじみ（_BackAndSideと共用）
+const double _kShelfH     = _kTopH + _kFaceH + _kLightH + _kGlowH + _kUndersideH; // 49pt
 
 const double _kPilW  = kPillarW; // 26pt（shelf_engine定数）
 const double _kPilSD = 60.0;     // 柱側面MAX幅（拡大）
@@ -74,12 +75,14 @@ class ShelfWall extends StatelessWidget {
     required this.wallWidth,
     this.viewportOffset = 0.0,
     this.viewportWidth  = 390.0,
+    this.viewportScale  = 1.0,
   });
   final List<Game>     games;
   final List<ShelfRow> rows;
   final double         wallWidth;
   final double         viewportOffset;
   final double         viewportWidth;
+  final double         viewportScale;
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +95,13 @@ class ShelfWall extends StatelessWidget {
       bayW * 3,
       wallWidth - _kPilW,
     ];
-    final totalH = _kShelfH * (nRows + 1) + kRowHeight * nRows;
+
+    // ① 上面は固定（縦柱と同じ太さ、scaleで変わらない）
+    const topH   = _kTopH;
+    const lightH = _kLightH;
+    const shelfH = _kShelfH;
+
+    final totalH = shelfH * (nRows + 1) + kRowHeight * nRows;
     final camX   = viewportOffset + viewportWidth / 2;
 
     return SizedBox(
@@ -104,13 +113,14 @@ class ShelfWall extends StatelessWidget {
             painter: _BackAndSidePainter(
               wallW: wallWidth, totalH: totalH, nRows: nRows,
               pilXs: pilXs, bayW: bayW, camX: camX,
+              shelfH: shelfH,
             ),
           ),
         ),
         for (int i = 0; i < nRows; i++)
           Positioned(
             left: 0, right: 0,
-            top:    _kShelfH + (_kShelfH + kRowHeight) * i,
+            top:    shelfH + (shelfH + kRowHeight) * i,
             height: kRowHeight,
             child: _BooksLayer(
               games: games, label: rows[i].label, seed: rows[i].seed,
@@ -120,12 +130,25 @@ class ShelfWall extends StatelessWidget {
         for (int i = 0; i <= nRows; i++)
           Positioned(
             left: 0, right: 0,
-            top:    (_kShelfH + kRowHeight) * i,
-            height: _kShelfH,
+            top:    (shelfH + kRowHeight) * i,
+            height: shelfH,
             child: CustomPaint(
-              painter: _ShelfBoardPainter(wallW: wallWidth, pilXs: pilXs),
+              painter: _ShelfBoardPainter(
+                wallW: wallWidth, pilXs: pilXs,
+                topH: topH, lightH: lightH,
+              ),
             ),
           ),
+        // ④ 裏面：棚板ごとに縦柱側面と同じtで描画（別レイヤー）
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _ShelfUndersidePainter(
+              wallW: wallWidth, totalH: totalH,
+              pilXs: pilXs, bayW: bayW, camX: camX,
+              shelfH: shelfH,
+            ),
+          ),
+        ),
         Positioned.fill(
           child: CustomPaint(
             painter: _PillarFacePainter(totalH: totalH, pilXs: pilXs),
@@ -143,8 +166,9 @@ class _BackAndSidePainter extends CustomPainter {
   const _BackAndSidePainter({
     required this.wallW, required this.totalH, required this.nRows,
     required this.pilXs, required this.bayW,   required this.camX,
+    required this.shelfH,
   });
-  final double wallW, totalH, bayW, camX;
+  final double wallW, totalH, bayW, camX, shelfH;
   final int    nRows;
   final List<double> pilXs;
 
@@ -156,23 +180,22 @@ class _BackAndSidePainter extends CustomPainter {
     );
 
     for (int i = 0; i < nRows; i++) {
-      final top  = _kShelfH + (_kShelfH + kRowHeight) * i;
+      final top  = shelfH + (shelfH + kRowHeight) * i;
       final rect = Rect.fromLTWH(0, top, wallW, kRowHeight);
 
-      // 後壁グラデ: 棚板直下が最明→急激に暗くなる→底は黒に近い
-      // librub実測: y=51〜130で RGB(144,98,62)→RGB(97,53,28)→RGB(35,15,8)
+      // 後壁グラデ: 棚板直下が明るく、本エリア上部まで光が届く
       canvas.drawRect(rect,
         Paint()..shader = LinearGradient(
           begin: Alignment.topCenter,
           end:   Alignment.bottomCenter,
           colors: const [
-            Color(0xFF9C6A3E), // 直下（RGB:156,106,62）
-            Color(0xFF6B3C1C), // 急降下
-            Color(0xFF381A08), // 中間
-            Color(0xFF1E0C04), // 下部
-            Color(0xFF100602), // 底（ほぼ黒）
+            Color(0xFFB87840), // 直下（明るい暖色）
+            Color(0xFF8B5228), // 上部1/4
+            Color(0xFF4A2410), // 中間
+            Color(0xFF241008), // 下部
+            Color(0xFF100602), // 底
           ],
-          stops: const [0.0, 0.15, 0.40, 0.70, 1.0],
+          stops: [0.0, 0.18, 0.45, 0.75, 1.0],
         ).createShader(rect),
       );
 
@@ -203,16 +226,16 @@ class _BackAndSidePainter extends CustomPainter {
           Paint()..shader = LinearGradient(
             begin: gradBegin, end: gradEnd,
             colors: const [
-              Color(0xFF201008), // 接合部（ほぼ黒）
-              Color(0xFF4A2810), // 暗い茶
-              Color(0xFF6B3E22), // 中間 RGB(107,62,34)
-              Color(0xFF7A4A2A), // 外端
+              Color(0xFF201008),
+              Color(0xFF4A2810),
+              Color(0xFF6B3E22),
+              Color(0xFF7A4A2A),
             ],
             stops: const [0.0, 0.15, 0.55, 1.0],
           ).createShader(sideRect),
         );
 
-        // 接合エッジ（太め影ライン）
+        // 接合エッジ
         final edgeX = showLeft ? px : px + _kPilW;
         canvas.drawLine(
           Offset(edgeX, top), Offset(edgeX, top + kRowHeight),
@@ -223,20 +246,18 @@ class _BackAndSidePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BackAndSidePainter o) => o.camX != camX;
+  bool shouldRepaint(_BackAndSidePainter o) => o.camX != camX || o.shelfH != shelfH;
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 3. _ShelfBoardPainter
-//   ④ 天板上面  17pt  RGB(165,110,54) ほぼ均一（わずかに奥暗→手前明）
-//   ③ LED移行   2pt  グロー上端（暗め）
-//   ③ LEDライン  3pt  RGB(255,249,227) 細い白
-//   ③ LED裾野   2pt  グロー下端
-//   ① 横柱底面   8pt  RGB(143,99,64)→後壁色へ急降下
+// 3. _ShelfBoardPainter — ①上面 ②前面エッジ ③LED
 // ══════════════════════════════════════════════════════════════════
 class _ShelfBoardPainter extends CustomPainter {
-  const _ShelfBoardPainter({required this.wallW, required this.pilXs});
-  final double wallW;
+  const _ShelfBoardPainter({
+    required this.wallW, required this.pilXs,
+    required this.topH, required this.lightH,
+  });
+  final double wallW, topH, lightH;
   final List<double> pilXs;
 
   @override
@@ -247,75 +268,151 @@ class _ShelfBoardPainter extends CustomPainter {
       if (x2 <= x1) continue;
       final w = x2 - x1;
 
-      // ④ 天板上面: ほぼ均一（librub実測で輝度差±5程度）
-      // わずかに奥（上）が暗く、手前（下、LED側）が明るい
-      final topRect = Rect.fromLTWH(x1, 0, w, _kTopH);
+      double y = 0;
+
+      // ① 上面：明るい木色（縦柱トンマナ）
+      final topRect = Rect.fromLTWH(x1, y, w, topH);
       canvas.drawRect(topRect,
         Paint()..shader = LinearGradient(
           begin: Alignment.topCenter,
           end:   Alignment.bottomCenter,
           colors: const [
-            Color(0xFF9A6832), // 上端（奥・やや暗）RGB(154,104,50)
-            Color(0xFFA56E36), // 基本色 RGB(165,110,54)
-            Color(0xFFAA7438), // 下端（手前・わずかに明）
+            Color(0xFF8A6828),
+            Color(0xFFA87C3A),
+            Color(0xFFBF9448),
           ],
           stops: const [0.0, 0.5, 1.0],
         ).createShader(topRect),
       );
+      y += topH;
 
-      // ③ LEDライン: 移行+白ライン+裾野
-      final yLed = _kTopH;
-
-      // LED上移行（天板下端〜LED前の暗め帯、librub y=37〜41 RGB(88,51,22)）
-      canvas.drawRect(
-        Rect.fromLTWH(x1, yLed, w, 2.0),
-        Paint()..color = const Color(0xFF583212),
-      );
-
-      // LED白ライン本体（librub y=42〜46 RGB(255,249,227)）
-      final ledY = yLed + 2.0;
-      canvas.drawRect(
-        Rect.fromLTWH(x1, ledY, w, _kLightH),
-        Paint()..color = const Color(0xFFFFF9E3),
-      );
-
-      // LEDグロー（白ラインの上下に光が滲む）
-      // 上グロー
-      canvas.drawRect(
-        Rect.fromLTWH(x1, ledY - 3, w, 5),
-        Paint()
-          ..color = Colors.white.withOpacity(0.30)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
-      );
-      // 下グロー
-      canvas.drawRect(
-        Rect.fromLTWH(x1, ledY + _kLightH, w, 5),
-        Paint()
-          ..color = Colors.white.withOpacity(0.22)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
-      );
-
-      // ① 横柱底面: RGB(143,99,64) → 急速に後壁色へ（librub y=51〜130）
-      final yUnder = _kTopH + _kLightH + _kGlowH;
-      final underRect = Rect.fromLTWH(x1, yUnder, w, _kUndersideH);
-      canvas.drawRect(underRect,
+      // ② 前面エッジ：暗い帯
+      final faceRect = Rect.fromLTWH(x1, y, w, _kFaceH);
+      canvas.drawRect(faceRect,
         Paint()..shader = LinearGradient(
           begin: Alignment.topCenter,
           end:   Alignment.bottomCenter,
           colors: const [
-            Color(0xFFAB8158), // 上端（LED裾野直下・グローの余韻）RGB(171,129,88)
-            Color(0xFF8F6340), // RGB(143,99,64)
-            Color(0xFF4A2A10), // 急降下
-            Color(0xFF1E0C04), // 後壁色へ溶け込む
+            Color(0xFF3A2008),
+            Color(0xFF28160A),
           ],
-          stops: const [0.0, 0.25, 0.6, 1.0],
-        ).createShader(underRect),
+          stops: const [0.0, 1.0],
+        ).createShader(faceRect),
+      );
+      y += _kFaceH;
+
+      // ③ LED：グラデで立体感（中央最明、白に近いクリーム）
+      final ledRect = Rect.fromLTWH(x1, y, w, lightH);
+      canvas.drawRect(ledRect,
+        Paint()..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end:   Alignment.bottomCenter,
+          colors: const [
+            Color(0xFFE0CC90),
+            Color(0xFFFFFAF0),
+            Color(0xFFE8D498),
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(ledRect),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(x1, y, w, lightH),
+        Paint()
+          ..color = Colors.white.withOpacity(0.18)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+      );
+      y += lightH;
+
+      // LED下グロー→後壁なじみ
+      final glowRect = Rect.fromLTWH(x1, y, w, _kGlowH + _kUndersideH);
+      canvas.drawRect(glowRect,
+        Paint()..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end:   Alignment.bottomCenter,
+          colors: const [
+            Color(0xFF8B5828),
+            Color(0xFF4A2A10),
+            Color(0xFF1E0C04),
+          ],
+          stops: const [0.0, 0.4, 1.0],
+        ).createShader(glowRect),
       );
     }
   }
 
   @override
-  bool shouldRepaint(_) => false;
+  bool shouldRepaint(_ShelfBoardPainter o) =>
+      o.topH != topH || o.lightH != lightH;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 3b. _ShelfUndersidePainter — ④裏面
+//   縦柱側面と全く同じtで計算、L字結合
+//   _BackAndSidePainterと同レイヤー構造だが棚板のY位置に描く
+// ══════════════════════════════════════════════════════════════════
+class _ShelfUndersidePainter extends CustomPainter {
+  const _ShelfUndersidePainter({
+    required this.wallW, required this.totalH,
+    required this.pilXs, required this.bayW,
+    required this.camX,  required this.shelfH,
+  });
+  final double wallW, totalH, bayW, camX, shelfH;
+  final List<double> pilXs;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 棚板ごとにループ（nRows+1枚）
+    int nShelves = 0;
+    double y = 0;
+    while (y < totalH) {
+      // この棚板の④裏面のY開始位置：LED下端
+      final undersideY = y + _kTopH + _kFaceH + _kLightH;
+
+      // 各柱ごとに側面と同じtで裏面幅を計算
+      for (final px in pilXs) {
+        final cx       = px + _kPilW / 2;
+        final dX       = camX - cx;
+        final showLeft = dX < 0;
+        final t        = (dX.abs() / (bayW * 0.30)).clamp(0.0, 1.0);
+        final undersideW = _kPilSD * t;
+        if (undersideW < 0.5) continue;
+
+        // X位置：縦柱側面と同じ
+        double ux     = showLeft ? px - undersideW : px + _kPilW;
+        double actualW = undersideW;
+        if (showLeft) {
+          if (ux < 0) { actualW += ux; ux = 0; }
+        } else {
+          if (ux + actualW > wallW) actualW = wallW - ux;
+        }
+        if (actualW < 0.5) continue;
+
+        // 高さ = 幅と同じ（奥行きが同じなので）
+        final underRect = Rect.fromLTWH(ux, undersideY, actualW, undersideW);
+        final gradBegin = showLeft ? Alignment.centerRight : Alignment.centerLeft;
+        final gradEnd   = showLeft ? Alignment.centerLeft  : Alignment.centerRight;
+
+        canvas.drawRect(underRect,
+          Paint()..shader = LinearGradient(
+            begin: gradBegin, end: gradEnd,
+            colors: const [
+              Color(0xFF201008), // 接合部（縦柱側面と同じ）
+              Color(0xFF5A3418),
+              Color(0xFF7A5028),
+            ],
+            stops: const [0.0, 0.4, 1.0],
+          ).createShader(underRect),
+        );
+      }
+
+      nShelves++;
+      y += shelfH + kRowHeight;
+      if (nShelves > 10) break; // 安全弁
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ShelfUndersidePainter o) => o.camX != camX;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -517,3 +614,4 @@ class _PopPainter extends CustomPainter {
       Paint()..color=Colors.black.withOpacity(.13)..style=PaintingStyle.stroke..strokeWidth=.9);
   @override bool shouldRepaint(_) => false;
 }
+
