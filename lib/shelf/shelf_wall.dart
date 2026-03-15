@@ -117,16 +117,6 @@ class ShelfWall extends StatelessWidget {
             ),
           ),
         ),
-        for (int i = 0; i < nRows; i++)
-          Positioned(
-            left: 0, right: 0,
-            top:    shelfH + (shelfH + kRowHeight) * i,
-            height: kRowHeight,
-            child: _BooksLayer(
-              games: games, label: rows[i].label, seed: rows[i].seed,
-              wallW: wallWidth, pilXs: pilXs,
-            ),
-          ),
         for (int i = 0; i <= nRows; i++)
           Positioned(
             left: 0, right: 0,
@@ -139,7 +129,6 @@ class ShelfWall extends StatelessWidget {
               ),
             ),
           ),
-        // ④ 裏面：棚板ごとに縦柱側面と同じtで描画（別レイヤー）
         Positioned.fill(
           child: CustomPaint(
             painter: _ShelfUndersidePainter(
@@ -149,6 +138,16 @@ class ShelfWall extends StatelessWidget {
             ),
           ),
         ),
+        for (int i = 0; i < nRows; i++)
+          Positioned(
+            left: 0, right: 0,
+            top:    shelfH + (shelfH + kRowHeight) * i,
+            height: kRowHeight,
+            child: _BooksLayer(
+              games: games, label: rows[i].label, seed: rows[i].seed,
+              wallW: wallWidth, pilXs: pilXs,
+            ),
+          ),
         Positioned.fill(
           child: CustomPaint(
             painter: _PillarFacePainter(totalH: totalH, pilXs: pilXs),
@@ -217,7 +216,7 @@ class _BackAndSidePainter extends CustomPainter {
         }
         if (actualW < 0.5) continue;
 
-        final sideRect = Rect.fromLTWH(sideX, top, actualW, kRowHeight);
+        final sideRect = Rect.fromLTWH(sideX, top - _kUndersideH, actualW, kRowHeight + _kUndersideH);
         final gradBegin = showLeft ? Alignment.centerRight : Alignment.centerLeft;
         final gradEnd   = showLeft ? Alignment.centerLeft  : Alignment.centerRight;
 
@@ -233,13 +232,6 @@ class _BackAndSidePainter extends CustomPainter {
             ],
             stops: const [0.0, 0.15, 0.55, 1.0],
           ).createShader(sideRect),
-        );
-
-        // 接合エッジ
-        final edgeX = showLeft ? px : px + _kPilW;
-        canvas.drawLine(
-          Offset(edgeX, top), Offset(edgeX, top + kRowHeight),
-          Paint()..color = Colors.black.withOpacity(0.7)..strokeWidth = 1.5,
         );
       }
     }
@@ -324,17 +316,16 @@ class _ShelfBoardPainter extends CustomPainter {
       y += lightH;
 
       // LED下グロー→後壁なじみ
-      final glowRect = Rect.fromLTWH(x1, y, w, _kGlowH + _kUndersideH);
+      final glowRect = Rect.fromLTWH(x1, y, w, _kGlowH);
       canvas.drawRect(glowRect,
         Paint()..shader = LinearGradient(
           begin: Alignment.topCenter,
           end:   Alignment.bottomCenter,
           colors: const [
             Color(0xFF8B5828),
-            Color(0xFF4A2A10),
-            Color(0xFF1E0C04),
+            Color(0xFF5A3018),
           ],
-          stops: const [0.0, 0.4, 1.0],
+          stops: const [0.0, 1.0],
         ).createShader(glowRect),
       );
     }
@@ -361,53 +352,49 @@ class _ShelfUndersidePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 棚板ごとにループ（nRows+1枚）
     int nShelves = 0;
     double y = 0;
     while (y < totalH) {
-      // この棚板の④裏面のY開始位置：LED下端
-      final undersideY = y + _kTopH + _kFaceH + _kLightH;
+      final uY = y + _kTopH + _kFaceH + _kLightH + _kGlowH;
 
-      // 各柱ごとに側面と同じtで裏面幅を計算
-      for (final px in pilXs) {
-        final cx       = px + _kPilW / 2;
-        final dX       = camX - cx;
-        final showLeft = dX < 0;
-        final t        = (dX.abs() / (bayW * 0.30)).clamp(0.0, 1.0);
-        final undersideW = _kPilSD * t;
-        if (undersideW < 0.5) continue;
+      for (int bi = 0; bi < pilXs.length - 1; bi++) {
+        final x1 = pilXs[bi] + _kPilW;
+        final x2 = pilXs[bi + 1];
+        if (x2 <= x1) continue;
 
-        // X位置：縦柱側面と同じ
-        double ux     = showLeft ? px - undersideW : px + _kPilW;
-        double actualW = undersideW;
-        if (showLeft) {
-          if (ux < 0) { actualW += ux; ux = 0; }
-        } else {
-          if (ux + actualW > wallW) actualW = wallW - ux;
-        }
-        if (actualW < 0.5) continue;
+        final dXLeft  = camX - (pilXs[bi]     + _kPilW / 2);
+        final dXRight = camX - (pilXs[bi + 1] + _kPilW / 2);
+        final tLeft   = (dXLeft.abs()  / (bayW * 0.30)).clamp(0.0, 1.0);
+        final tRight  = (dXRight.abs() / (bayW * 0.30)).clamp(0.0, 1.0);
+        // 左柱：右側面が見える時(dXLeft>0)のみsl>0
+        final sl = dXLeft  > 0 ? (_kPilSD * tLeft).clamp(0.0,  (x2 - x1) / 2) : 0.0;
+        // 右柱：左側面が見える時(dXRight<0)のみsr>0
+        final sr = dXRight < 0 ? (_kPilSD * tRight).clamp(0.0, (x2 - x1) / 2) : 0.0;
 
-        // 高さ = 幅と同じ（奥行きが同じなので）
-        final underRect = Rect.fromLTWH(ux, undersideY, actualW, undersideW);
-        final gradBegin = showLeft ? Alignment.centerRight : Alignment.centerLeft;
-        final gradEnd   = showLeft ? Alignment.centerLeft  : Alignment.centerRight;
+        // 台形：上辺全幅、下辺は両端をsl/srだけ内側
+        final path = Path();
+        path.moveTo(x1,      uY);
+        path.lineTo(x2,      uY);
+        path.lineTo(x2 - sr, uY + _kUndersideH);
+        path.lineTo(x1 + sl, uY + _kUndersideH);
+        path.close();
 
-        canvas.drawRect(underRect,
+        final rect = Rect.fromLTWH(x1, uY, x2 - x1, _kUndersideH);
+        canvas.drawPath(path,
           Paint()..shader = LinearGradient(
-            begin: gradBegin, end: gradEnd,
+            begin: Alignment.topCenter,
+            end:   Alignment.bottomCenter,
             colors: const [
-              Color(0xFF201008), // 接合部（縦柱側面と同じ）
-              Color(0xFF5A3418),
-              Color(0xFF7A5028),
+              Color(0xFFB87840), // 上端：後壁グラデ上端色と統一
+              Color(0xFF7A4A2A), // 下端：側面色と統一
             ],
-            stops: const [0.0, 0.4, 1.0],
-          ).createShader(underRect),
+          ).createShader(rect),
         );
       }
 
       nShelves++;
       y += shelfH + kRowHeight;
-      if (nShelves > 10) break; // 安全弁
+      if (nShelves > 10) break;
     }
   }
 
