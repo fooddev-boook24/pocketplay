@@ -73,15 +73,19 @@ class ShelfWall extends StatelessWidget {
     required this.games,
     required this.rows,
     required this.wallWidth,
-    this.viewportOffset = 0.0,
-    this.viewportWidth  = 390.0,
-    this.viewportScale  = 1.0,
+    this.viewportOffset  = 0.0,
+    this.viewportOffsetY = 0.0,
+    this.viewportWidth   = 390.0,
+    this.viewportHeight  = 800.0,
+    this.viewportScale   = 1.0,
   });
   final List<Game>     games;
   final List<ShelfRow> rows;
   final double         wallWidth;
   final double         viewportOffset;
+  final double         viewportOffsetY;
   final double         viewportWidth;
+  final double         viewportHeight;
   final double         viewportScale;
 
   @override
@@ -96,13 +100,62 @@ class ShelfWall extends StatelessWidget {
       wallWidth - _kPilW,
     ];
 
-    // ① 上面は固定（縦柱と同じ太さ、scaleで変わらない）
-    const topH   = _kTopH;
-    const lightH = _kLightH;
-    const shelfH = _kShelfH;
+    final camX = viewportOffset + viewportWidth / 2;
+    final camY = viewportOffsetY + viewportHeight / 2;
 
-    final totalH = shelfH * (nRows + 1) + kRowHeight * nRows;
-    final camX   = viewportOffset + viewportWidth / 2;
+    // ── パースペクティブ計算 ──
+    // 固定shelfHで仮のY位置を求め、camYとの距離でtopH/undersideHを決定
+    const fixedShelfH = _kShelfH; // 49pt（仮計算用）
+    const fixedFront  = _kFaceH + _kLightH + _kGlowH; // 15pt（正面要素、固定）
+
+    // nRows+1 個の棚板がある（天井棚板 + 各段の下棚板）
+    // 棚板iのtopH[i], undersideH[i] を計算
+    final topHs       = <double>[];
+    final undersideHs = <double>[];
+    final shelfHs     = <double>[];
+
+    for (int i = 0; i <= nRows; i++) {
+      // 仮のY位置（固定shelfHベース）
+      final approxY = (fixedShelfH + kRowHeight) * i;
+      // 棚板の前面中央あたりのY
+      final shelfMidY = approxY + _kTopH / 2;
+
+      // dy > 0 → 棚が視点より上 → 見上げ → underside見える
+      // dy < 0 → 棚が視点より下 → 見下ろし → top見える
+      final dy = camY - shelfMidY;
+      // 基準距離：画面高さの半分程度を参照
+      final refDist = viewportHeight * 0.6;
+      final perspT = (dy / refDist).clamp(-1.5, 1.5);
+
+      // scaleが大きい＝近い＝裏面のパース効果が強まる（天板には影響しない）
+      final scaleMul = viewportScale.clamp(0.5, 2.5);
+
+      // undersideH: 視点より上の棚ほど裏面が見える (perspT > 0)
+      final tUnder = (perspT * scaleMul).clamp(0.0, 2.0);
+      final underH = (_kUndersideH * (0.15 + 0.85 * tUnder)).clamp(1.0, _kUndersideH * 2.5);
+
+      // topH: 視点より下の棚ほど天板が見える (perspT < 0)、scaleの影響なし
+      final tTop = (-perspT).clamp(0.0, 1.5);
+      final topH = (_kTopH * (0.3 + 0.7 * tTop)).clamp(4.0, _kTopH * 2.0);
+
+      topHs.add(topH);
+      undersideHs.add(underH);
+      shelfHs.add(topH + fixedFront + underH);
+    }
+
+    // Y位置を累積計算
+    final shelfYs = <double>[]; // 各棚板の開始Y
+    final rowYs   = <double>[]; // 各本エリアの開始Y
+    double curY = 0;
+    for (int i = 0; i <= nRows; i++) {
+      shelfYs.add(curY);
+      curY += shelfHs[i];
+      if (i < nRows) {
+        rowYs.add(curY);
+        curY += kRowHeight;
+      }
+    }
+    final totalH = curY;
 
     return SizedBox(
       width:  wallWidth,
@@ -113,19 +166,19 @@ class ShelfWall extends StatelessWidget {
             painter: _BackAndSidePainter(
               wallW: wallWidth, totalH: totalH, nRows: nRows,
               pilXs: pilXs, bayW: bayW, camX: camX,
-              shelfH: shelfH,
+              rowYs: rowYs, undersideHs: undersideHs,
             ),
           ),
         ),
         for (int i = 0; i <= nRows; i++)
           Positioned(
             left: 0, right: 0,
-            top:    (shelfH + kRowHeight) * i,
-            height: shelfH,
+            top:    shelfYs[i],
+            height: shelfHs[i],
             child: CustomPaint(
               painter: _ShelfBoardPainter(
                 wallW: wallWidth, pilXs: pilXs,
-                topH: topH, lightH: lightH,
+                topH: topHs[i], lightH: _kLightH,
               ),
             ),
           ),
@@ -134,14 +187,15 @@ class ShelfWall extends StatelessWidget {
             painter: _ShelfUndersidePainter(
               wallW: wallWidth, totalH: totalH,
               pilXs: pilXs, bayW: bayW, camX: camX,
-              shelfH: shelfH,
+              shelfYs: shelfYs, shelfHs: shelfHs,
+              undersideHs: undersideHs, topHs: topHs,
             ),
           ),
         ),
         for (int i = 0; i < nRows; i++)
           Positioned(
             left: 0, right: 0,
-            top:    shelfH + (shelfH + kRowHeight) * i,
+            top:    rowYs[i],
             height: kRowHeight,
             child: _BooksLayer(
               games: games, label: rows[i].label, seed: rows[i].seed,
@@ -165,11 +219,13 @@ class _BackAndSidePainter extends CustomPainter {
   const _BackAndSidePainter({
     required this.wallW, required this.totalH, required this.nRows,
     required this.pilXs, required this.bayW,   required this.camX,
-    required this.shelfH,
+    required this.rowYs, required this.undersideHs,
   });
-  final double wallW, totalH, bayW, camX, shelfH;
+  final double wallW, totalH, bayW, camX;
   final int    nRows;
   final List<double> pilXs;
+  final List<double> rowYs;
+  final List<double> undersideHs;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -179,8 +235,9 @@ class _BackAndSidePainter extends CustomPainter {
     );
 
     for (int i = 0; i < nRows; i++) {
-      final top  = shelfH + (shelfH + kRowHeight) * i;
+      final top  = rowYs[i];
       final rect = Rect.fromLTWH(0, top, wallW, kRowHeight);
+      final uH   = undersideHs[i]; // この棚板の裏面高さ
 
       // 後壁グラデ: 棚板直下が明るく、本エリア上部まで光が届く
       canvas.drawRect(rect,
@@ -216,7 +273,7 @@ class _BackAndSidePainter extends CustomPainter {
         }
         if (actualW < 0.5) continue;
 
-        final sideRect = Rect.fromLTWH(sideX, top - _kUndersideH, actualW, kRowHeight + _kUndersideH);
+        final sideRect = Rect.fromLTWH(sideX, top - uH, actualW, kRowHeight + uH);
         final gradBegin = showLeft ? Alignment.centerRight : Alignment.centerLeft;
         final gradEnd   = showLeft ? Alignment.centerLeft  : Alignment.centerRight;
 
@@ -238,7 +295,7 @@ class _BackAndSidePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BackAndSidePainter o) => o.camX != camX || o.shelfH != shelfH;
+  bool shouldRepaint(_BackAndSidePainter o) => true;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -345,17 +402,20 @@ class _ShelfUndersidePainter extends CustomPainter {
   const _ShelfUndersidePainter({
     required this.wallW, required this.totalH,
     required this.pilXs, required this.bayW,
-    required this.camX,  required this.shelfH,
+    required this.camX,
+    required this.shelfYs, required this.shelfHs,
+    required this.undersideHs, required this.topHs,
   });
-  final double wallW, totalH, bayW, camX, shelfH;
+  final double wallW, totalH, bayW, camX;
   final List<double> pilXs;
+  final List<double> shelfYs, shelfHs, undersideHs, topHs;
 
   @override
   void paint(Canvas canvas, Size size) {
-    int nShelves = 0;
-    double y = 0;
-    while (y < totalH) {
-      final uY = y + _kTopH + _kFaceH + _kLightH + _kGlowH;
+    for (int si = 0; si < shelfYs.length; si++) {
+      final y  = shelfYs[si];
+      final uH = undersideHs[si];
+      final uY = y + topHs[si] + _kFaceH + _kLightH + _kGlowH;
 
       for (int bi = 0; bi < pilXs.length - 1; bi++) {
         final x1 = pilXs[bi] + _kPilW;
@@ -375,11 +435,11 @@ class _ShelfUndersidePainter extends CustomPainter {
         final path = Path();
         path.moveTo(x1,      uY);
         path.lineTo(x2,      uY);
-        path.lineTo(x2 - sr, uY + _kUndersideH);
-        path.lineTo(x1 + sl, uY + _kUndersideH);
+        path.lineTo(x2 - sr, uY + uH);
+        path.lineTo(x1 + sl, uY + uH);
         path.close();
 
-        final rect = Rect.fromLTWH(x1, uY, x2 - x1, _kUndersideH);
+        final rect = Rect.fromLTWH(x1, uY, x2 - x1, uH);
         canvas.drawPath(path,
           Paint()..shader = LinearGradient(
             begin: Alignment.topCenter,
@@ -391,15 +451,11 @@ class _ShelfUndersidePainter extends CustomPainter {
           ).createShader(rect),
         );
       }
-
-      nShelves++;
-      y += shelfH + kRowHeight;
-      if (nShelves > 10) break;
     }
   }
 
   @override
-  bool shouldRepaint(_ShelfUndersidePainter o) => o.camX != camX;
+  bool shouldRepaint(_ShelfUndersidePainter o) => true;
 }
 
 // ══════════════════════════════════════════════════════════════════

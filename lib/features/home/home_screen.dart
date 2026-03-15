@@ -140,6 +140,7 @@ class _StoreContentState extends State<_StoreContent> {
   final _tc = TransformationController();
   bool _initialized = false;
   double _viewportOffset = 0.0;
+  double _viewportOffsetY = 0.0;
   double _viewportScale  = 1.0;
 
   @override
@@ -153,12 +154,16 @@ class _StoreContentState extends State<_StoreContent> {
 
   void _onTransform() {
     final tx = -_tc.value.getTranslation().x;
+    final ty = -_tc.value.getTranslation().y;
     final scale = _tc.value.getMaxScaleOnAxis();
     final offset = tx / scale;
+    final offsetY = ty / scale;
     if ((offset - _viewportOffset).abs() > 0.5 ||
+        (offsetY - _viewportOffsetY).abs() > 0.5 ||
         (scale - _viewportScale).abs() > 0.01) {
       setState(() {
         _viewportOffset = offset;
+        _viewportOffsetY = offsetY;
         _viewportScale  = scale;
       });
     }
@@ -197,7 +202,9 @@ class _StoreContentState extends State<_StoreContent> {
                 rows: kShelfRows,
                 wallWidth: wallW,
                 viewportOffset: _viewportOffset,
+                viewportOffsetY: _viewportOffsetY,
                 viewportWidth:  screenW,
+                viewportHeight: constraints.maxHeight,
                 viewportScale:  _viewportScale,
               ),
             );
