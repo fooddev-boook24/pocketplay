@@ -38,10 +38,13 @@ const double kRowHeight = 210.0; // 本エリア高さ
 const double kBoardH    = 14.0;  // 棚板前面の厚み
 const double kPillarW   = 26.0;
 
+// POP = 背表紙と同列に差し込むカード
+// 横幅は背表紙1冊分、高さはやや高め（1.15倍程度）
+// 3D X軸回転で上端がカメラ側に傾く（shelf_wall側で適用）
 const Map<PopType, Size> kPopSize = {
-  PopType.stand: Size(44.0, 92.0),
-  PopType.plate: Size(88.0, 28.0),
-  PopType.lean:  Size(52.0, 82.0),
+  PopType.stand: Size(28.0, 160.0),
+  PopType.lean:  Size(28.0, 160.0),
+  PopType.plate: Size(28.0, 160.0),
 };
 
 class ShelfLayoutEngine {

@@ -13,6 +13,17 @@ class Game {
     this.faceAspect = 0.88,
     this.imageUrl,
     this.localAsset,
+    // Phase 2拡張フィールド
+    this.thumbnailUrl,
+    this.minPlayers,
+    this.maxPlayers,
+    this.playTimeMinutes,
+    this.bggRating,
+    this.categories = const [],
+    this.description,
+    this.isAvailableInJapan = false,
+    // Phase 4: アフィリエイト
+    this.rakutenAffUrl,
   });
 
   final String id;
@@ -25,16 +36,70 @@ class Game {
   final String? imageUrl;
   final String? localAsset;
 
-  Game copyWith({String? imageUrl}) => Game(
-        id: id, bggId: bggId, title: title,
-        spineColor: spineColor, spineTextColor: spineTextColor,
-        size: size, faceAspect: faceAspect,
+  // Phase 2拡張
+  final String? thumbnailUrl;
+  final int? minPlayers;
+  final int? maxPlayers;
+  final int? playTimeMinutes;
+  final double? bggRating;
+  final List<String> categories;
+  final String? description;
+  final bool isAvailableInJapan;
+
+  // Phase 4
+  final String? rakutenAffUrl;
+
+  Game copyWith({
+    String? imageUrl,
+    String? thumbnailUrl,
+    int? minPlayers,
+    int? maxPlayers,
+    int? playTimeMinutes,
+    double? bggRating,
+    List<String>? categories,
+    String? description,
+    bool? isAvailableInJapan,
+    String? rakutenAffUrl,
+  }) =>
+      Game(
+        id: id,
+        bggId: bggId,
+        title: title,
+        spineColor: spineColor,
+        spineTextColor: spineTextColor,
+        size: size,
+        faceAspect: faceAspect,
         imageUrl: imageUrl ?? this.imageUrl,
         localAsset: localAsset,
+        thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+        minPlayers: minPlayers ?? this.minPlayers,
+        maxPlayers: maxPlayers ?? this.maxPlayers,
+        playTimeMinutes: playTimeMinutes ?? this.playTimeMinutes,
+        bggRating: bggRating ?? this.bggRating,
+        categories: categories ?? this.categories,
+        description: description ?? this.description,
+        isAvailableInJapan: isAvailableInJapan ?? this.isAvailableInJapan,
+        rakutenAffUrl: rakutenAffUrl ?? this.rakutenAffUrl,
       );
 
   String? get bestImage => imageUrl ?? localAsset;
   bool get hasImage => bestImage != null && bestImage!.isNotEmpty;
+
+  String get playersLabel {
+    if (minPlayers == null && maxPlayers == null) return '-';
+    if (minPlayers == maxPlayers) return '$minPlayers人';
+    return '${minPlayers ?? "?"}〜${maxPlayers ?? "?"}人';
+  }
+
+  String get timeLabel {
+    if (playTimeMinutes == null) return '-';
+    if (playTimeMinutes! >= 60) {
+      final h = playTimeMinutes! ~/ 60;
+      final m = playTimeMinutes! % 60;
+      return m == 0 ? '$h時間' : '$h時間$m分';
+    }
+    return '$playTimeMinutes分';
+  }
 }
 
 // ─── 30 real BGG games for variety ────────────────────────────────────────────

@@ -2,6 +2,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:in_app_review/in_app_review.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/constants.dart';
 import '../../data/models/game.dart';
 import '../../data/repositories/game_provider.dart';
 import '../../shelf/shelf_wall.dart';
@@ -197,15 +200,17 @@ class _StoreContentState extends State<_StoreContent> {
               constrained: false,
               boundaryMargin: const EdgeInsets.symmetric(
                   horizontal: 0, vertical: 60),
-              child: ShelfWall(
-                games: widget.games,
-                rows: kShelfRows,
-                wallWidth: wallW,
-                viewportOffset: _viewportOffset,
-                viewportOffsetY: _viewportOffsetY,
-                viewportWidth:  screenW,
-                viewportHeight: constraints.maxHeight,
-                viewportScale:  _viewportScale,
+              child: RepaintBoundary(
+                child: ShelfWall(
+                  games: widget.games,
+                  rows: buildShelfRows(widget.games),
+                  wallWidth: wallW,
+                  viewportOffset: _viewportOffset,
+                  viewportOffsetY: _viewportOffsetY,
+                  viewportWidth:  screenW,
+                  viewportHeight: constraints.maxHeight,
+                  viewportScale:  _viewportScale,
+                ),
               ),
             );
           }),
@@ -266,29 +271,164 @@ class _TopBar extends StatelessWidget {
       child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
         _GlassBtn(icon: Icons.search_rounded),
         const SizedBox(width: 8),
-        _GlassBtn(icon: Icons.bookmark_border_rounded),
+        _GlassBtn(
+          icon: Icons.info_outline_rounded,
+          onTap: () => _showInfoSheet(context),
+        ),
       ]),
+    );
+  }
+
+  void _showInfoSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _InfoSheet(),
     );
   }
 }
 
 class _GlassBtn extends StatelessWidget {
-  const _GlassBtn({required this.icon});
+  const _GlassBtn({required this.icon, this.onTap});
   final IconData icon;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(10),
-    child: BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-      child: Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.32),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withOpacity(0.14), width: 0.7),
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.32),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withOpacity(0.14), width: 0.7),
+          ),
+          child: Icon(icon, size: 17, color: Colors.white.withOpacity(0.88)),
         ),
-        child: Icon(icon, size: 17, color: Colors.white.withOpacity(0.88)),
       ),
     ),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Info bottom sheet（プライバシーポリシー・利用規約）
+// ─────────────────────────────────────────────────────────────────────────────
+class _InfoSheet extends StatelessWidget {
+  const _InfoSheet();
+
+  Future<void> _launch(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _requestReview(BuildContext context) async {
+    Navigator.of(context).pop();
+    final review = InAppReview.instance;
+    if (await review.isAvailable()) {
+      await review.requestReview();
+    } else {
+      await review.openStoreListing();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1000),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+          24, 20, 24, MediaQuery.of(context).padding.bottom + 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ハンドル
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(children: [
+            const Text('PocketPlay',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800)),
+            const Spacer(),
+            Text('v1.0.0',
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.35), fontSize: 12)),
+          ]),
+          const SizedBox(height: 16),
+          _InfoRow(
+            icon: Icons.star_rounded,
+            label: 'アプリを評価する',
+            accent: const Color(0xFFFFCC44),
+            onTap: () => _requestReview(context),
+          ),
+          const SizedBox(height: 8),
+          _InfoRow(
+            icon: Icons.privacy_tip_outlined,
+            label: 'プライバシーポリシー',
+            onTap: () => _launch(AppConstants.privacyPolicyUrl),
+          ),
+          const SizedBox(height: 8),
+          _InfoRow(
+            icon: Icons.description_outlined,
+            label: '利用規約',
+            onTap: () => _launch(AppConstants.termsOfServiceUrl),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow(
+      {required this.icon, required this.label, required this.onTap, this.accent});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconColor = accent ?? const Color(0xFFD09248);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08), width: 0.7),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 20),
+            const SizedBox(width: 12),
+            Text(label,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600)),
+            const Spacer(),
+            Icon(Icons.arrow_forward_ios_rounded,
+                color: Colors.white.withValues(alpha: 0.35), size: 13),
+          ],
+        ),
+      ),
+    );
+  }
 }

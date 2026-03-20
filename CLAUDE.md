@@ -64,6 +64,15 @@ flutter_cache_manager: ^3.4.x
 ## 3. プロジェクト構成
 
 ### 現在の構成（変更禁止ファイル）
+
+**⚠️ shelf/ ディレクトリは完全ロック（棚デザイン確定済み）**
+`shelf_wall.dart`, `shelf_engine.dart`, `box_widgets.dart` の描画ロジック・定数・色・レイヤー順は一切変更禁止。
+唯一許可される変更は `box_widgets.dart` へのタップアニメーション追加（GestureDetector + Hero遷移のラッパー追加のみ、既存の描画コードは触らない）。
+
+**⚠️ home_screen.dart のviewport関連は変更禁止**
+`_StoreContentState._onTransform` の `viewportOffset`, `viewportOffsetY`, `viewportScale` の計算式、
+`ShelfWall` への受け渡しパラメータ（viewportOffset, viewportOffsetY, viewportWidth, viewportHeight, viewportScale）は確定済み。
+
 ```
 lib/
   main.dart
@@ -73,11 +82,11 @@ lib/
       bgg_repository.dart         # BGG XMLAPIクライアント
       game_provider.dart          # Riverpod provider + ShelfRow定義
   features/home/
-    home_screen.dart              # メイン画面 (InteractiveViewer + 電球照明)
+    home_screen.dart              # メイン画面 (InteractiveViewer + 電球照明 + viewport計算)
   shelf/
-    box_widgets.dart              # FaceBoxWidget, SpineBoxWidget, StackBoxWidget
-    shelf_engine.dart             # PlacedBox, PlacedPop, ShelfLayoutEngine
-    shelf_wall.dart               # ShelfWall, POPカード, 棚板, 柱
+    box_widgets.dart              # FaceBoxWidget, SpineBoxWidget, StackBoxWidget ← 描画ロジック変更禁止
+    shelf_engine.dart             # PlacedBox, PlacedPop, ShelfLayoutEngine ← 完全変更禁止
+    shelf_wall.dart               # ShelfWall, POPカード, 棚板, 柱, パースペクティブ ← 完全変更禁止
 ```
 
 ### 追加する構成
@@ -360,6 +369,55 @@ class DataPipelineService {
 - 後壁グラデーション: 5段暖色グラデーション（ライトが当たっている感）
 - `InteractiveViewer`: minScale=0.38, maxScale=2.8, boundaryMargin=0
 
+#### 棚板パースペクティブ仕様（確定・変更禁止）
+
+shelf_wall.dart に実装済みのパースペクティブモデル。以下は一切変更しないこと：
+
+**可変要素**:
+- `topH[i]` — 視点より下の棚ほど天板が大きい（見下ろし）、scaleの影響なし
+- `undersideH[i]` — 視点より上の棚ほど裏面が大きい（見上げ）、scale拡大で効果増幅
+
+**固定要素（定数変更禁止）**:
+```dart
+const double _kTopH       = kPillarW; // 26pt（基準値）
+const double _kFaceH      =  6.0;
+const double _kLightH     =  5.0;
+const double _kGlowH      =  4.0;
+const double _kUndersideH =  8.0;    // 基準値
+const double _kPilW       = kPillarW; // 26pt
+const double _kPilSD      = 60.0;
+```
+
+**レイヤー順（変更禁止）**:
+1. `_BackAndSidePainter`（後壁・側面）
+2. `_ShelfBoardPainter`（棚板）
+3. `_ShelfUndersidePainter`（裏面台形）
+4. `_BooksLayer`（本）
+5. `_PillarFacePainter`（柱正面）
+
+**縦柱トンマナ（変更禁止）**:
+- 柱正面: `Color(0xFFAF8C3B)` → `Color(0xFF916533)` 左→右グラデ
+- 側面: 4色グラデ `0xFF201008` → `0xFF7A4A2A`
+- t計算: `(dX.abs() / (bayW * 0.30)).clamp(0.0, 1.0)`
+- showLeft = `dX < 0`（実機確認済み）
+
+**斜線（変更禁止）**:
+- 向き: 上辺が広く、下辺が内側
+- sl/srのclamp: `(x2-x1)/2`
+- 方向同期: `dXLeft > 0`時のみ`sl>0`、`dXRight < 0`時のみ`sr>0`
+
+**裏面台形色（変更禁止）**:
+- 上端: `Color(0xFFB87840)`（後壁グラデ上端色）
+- 下端: `Color(0xFF7A4A2A)`（側面色）
+
+**glowRect（変更禁止）**:
+- height = `_kGlowH`のみ（undersideは`_ShelfUndersidePainter`が担当）
+- 終端色 = `Color(0xFF5A3018)`
+
+**側面Y拡張（変更禁止）**:
+- `_BackAndSidePainter`の側面rectは `top - undersideH[i]` から `kRowHeight + undersideH[i]` の高さ
+- 裏面台形の斜線外側に側面色が連続して見えるため（黒露出防止）
+
 ### 6.2 タップアニメーション（box_widgets.dart に追加）
 
 **必須実装**。「手に取る」感覚を再現：
@@ -637,6 +695,13 @@ android/app/google-services.json
 - 現在の棚の色味・電球照明の変更
 - APIキーのハードコード
 - 毎buildでShelfLayoutEngine.generateRow()を呼ぶ（事前計算必須）
+- **shelf_wall.dart の描画ロジック・定数・色・パースペクティブ計算の変更**
+- **shelf_engine.dart の定数・レイアウトアルゴリズムの変更**
+- **box_widgets.dart の描画ロジックの変更**（タップアニメーションのラッパー追加のみ許可）
+- **home_screen.dart の viewport計算（_onTransform）の変更**
+- **棚板レイヤー順の変更**（BackAndSide → ShelfBoard → Underside → Books → PillarFace）
+- **縦柱のトンマナ（色・グラデ・影）の変更**
+- **裏面台形の斜線方向・色・sl/sr計算の変更**
 
 ### コーディング規則
 - `StatelessWidget`優先。アニメーションのみ`StatefulWidget`可
@@ -671,16 +736,28 @@ try {
 
 ### shelf_engine.dart の重要定数
 ```dart
-const double kRowHeight = 230.0;  // 棚の高さ
-const double kBoardH    = 18.0;   // 棚板の厚み
-const double kPillarW   = 26.0;   // 柱の幅
+const double kRowHeight = 210.0;  // 本エリア高さ（変更禁止）
+const double kBoardH    = 14.0;   // 棚板前面の厚み（変更禁止）
+const double kPillarW   = 26.0;   // 柱の幅（変更禁止）
+```
+
+### shelf_wall.dart の重要定数（変更禁止）
+```dart
+const double _kTopH       = kPillarW; // 26pt（天板基準値、パースペクティブで可変）
+const double _kFaceH      =  6.0;     // 前面エッジ（固定）
+const double _kLightH     =  5.0;     // LED（固定）
+const double _kGlowH      =  4.0;     // LEDグロー（固定）
+const double _kUndersideH =  8.0;     // 裏面基準値（パースペクティブで可変）
+const double _kShelfH     = 49.0;     // 基準棚板合計（仮計算用）
+const double _kPilW       = kPillarW; // 26pt
+const double _kPilSD      = 60.0;     // 側面MAX幅
 ```
 
 ### home_screen.dart の重要パラメータ
 ```dart
 final wallW   = screenW * 10.0;  // 棚幅 = 画面幅の10倍
-final marginW = screenW * 1.5;   // 左右マージン（変更禁止）
-// InteractiveViewer: minScale=0.38, maxScale=2.8, boundaryMargin=0
+// InteractiveViewer: minScale=0.38, maxScale=2.8, boundaryMargin=vertical:60
+// viewport計算: viewportOffset(X), viewportOffsetY(Y), viewportScale → ShelfWallに渡す（変更禁止）
 ```
 
 ### kShelfRows (game_provider.dart)
@@ -699,6 +776,12 @@ final marginW = screenW * 1.5;   // 左右マージン（変更禁止）
 
 **Q: 新しいUIを追加する際、既存の棚UIを変更していいか？**
 → 棚UIへの影響がゼロの場合のみ追加可。既存コンポーネントは変更禁止。
+
+**Q: shelf_wall.dart や shelf_engine.dart にバグを見つけた場合は？**
+→ 絶対に自分で修正しない。ユーザーに報告して判断を仰ぐこと。過去に「修正」と称して棚デザインを何度も壊した前例がある。
+
+**Q: box_widgets.dart にタップアニメーションを追加する際のルールは？**
+→ 既存のFaceBoxWidget/SpineBoxWidget/StackBoxWidgetの描画コード（CustomPaint, build内のレイアウト）は一切触らない。GestureDetector + AnimatedScaleでラップする形で外側に追加する。
 
 **Q: BGGのAPIが落ちていたらどうするか？**
 → `kSeedGames`のlocalAssetで表示。エラーは隠さず`dev.log`に記録。

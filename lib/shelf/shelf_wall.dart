@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 import '../data/repositories/game_provider.dart';
+import '../features/game_detail/game_detail_screen.dart';
 import 'box_widgets.dart';
 import 'shelf_engine.dart';
 import '../data/models/game.dart';
@@ -47,14 +48,25 @@ const double _kShelfH     = _kTopH + _kFaceH + _kLightH + _kGlowH + _kUndersideH
 const double _kPilW  = kPillarW; // 26pt（shelf_engine定数）
 const double _kPilSD = 60.0;     // 柱側面MAX幅（拡大）
 
-// POP スタイル
+// セクションラベル配色
+// bg=ラベル本体色, fg=文字色, dark=ボーダー色（セクションカラーのみここで差別化）
 const _popStyles = {
-  'FEATURED':    _PS('★\nおすすめ', Color(0xFFFFD800), Color(0xFF1A1000), Color(0xFFAA8800)),
-  'STRATEGY':    _PS('戦略\nゲーム', Color(0xFF1E44CC), Colors.white,     Color(0xFF0E2A88)),
-  '2 PLAYERS':   _PS('2人\n専用',   Color(0xFFD81830), Colors.white,     Color(0xFF8A0010)),
-  'PARTY GAMES': _PS('パーティ',    Color(0xFF18AA44), Colors.white,     Color(0xFF0A6828)),
-  'SMALL BOX':   _PS('小箱',        Color(0xFFFF7700), Colors.white,     Color(0xFFAA4400)),
-  'NEW & HOT':   _PS('NEW\n話題作', Color(0xFFDD1020), Colors.white,     Color(0xFF880010)),
+  'FEATURED':      _PS('注目作',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFC89048)),
+  'NEW ARRIVAL':   _PS('新　着',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFC89048)),
+  'NEW & HOT':     _PS('注目作',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFC89048)),
+  'STRATEGY':      _PS('戦　略',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF6A8AAA)),
+  '2 PLAYERS':     _PS('2 人 用',  Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFB06070)),
+  'PARTY GAMES':   _PS('パーティ', Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFD07040)),
+  'SMALL BOX':     _PS('小　箱',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF5A8E60)),
+  'ADVENTURE':     _PS('冒　険',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF8060B0)),
+  'ECONOMICS':     _PS('経　済',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF508080)),
+  'CARD GAMES':    _PS('カード',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFB08040)),
+  'ABSTRACT':      _PS('抽　象',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF7080A0)),
+  'FAMILY':        _PS('家 族',    Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFD0A040)),
+  'DEDUCTION':     _PS('推　理',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF506090)),
+  'NEGOTIATION':   _PS('交　渉',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFA04848)),
+  'PUZZLE':        _PS('パズル',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF508070)),
+  'LIGHT & QUICK': _PS('ライト',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF70A050)),
 };
 
 @immutable
@@ -161,12 +173,15 @@ class ShelfWall extends StatelessWidget {
       width:  wallWidth,
       height: totalH,
       child: Stack(clipBehavior: Clip.hardEdge, children: [
+        // 描画のみ（タップ透過）
         Positioned.fill(
-          child: CustomPaint(
-            painter: _BackAndSidePainter(
-              wallW: wallWidth, totalH: totalH, nRows: nRows,
-              pilXs: pilXs, bayW: bayW, camX: camX,
-              rowYs: rowYs, undersideHs: undersideHs,
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _BackAndSidePainter(
+                wallW: wallWidth, totalH: totalH, nRows: nRows,
+                pilXs: pilXs, bayW: bayW, camX: camX,
+                rowYs: rowYs, undersideHs: undersideHs,
+              ),
             ),
           ),
         ),
@@ -175,20 +190,24 @@ class ShelfWall extends StatelessWidget {
             left: 0, right: 0,
             top:    shelfYs[i],
             height: shelfHs[i],
-            child: CustomPaint(
-              painter: _ShelfBoardPainter(
-                wallW: wallWidth, pilXs: pilXs,
-                topH: topHs[i], lightH: _kLightH,
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _ShelfBoardPainter(
+                  wallW: wallWidth, pilXs: pilXs,
+                  topH: topHs[i], lightH: _kLightH,
+                ),
               ),
             ),
           ),
         Positioned.fill(
-          child: CustomPaint(
-            painter: _ShelfUndersidePainter(
-              wallW: wallWidth, totalH: totalH,
-              pilXs: pilXs, bayW: bayW, camX: camX,
-              shelfYs: shelfYs, shelfHs: shelfHs,
-              undersideHs: undersideHs, topHs: topHs,
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _ShelfUndersidePainter(
+                wallW: wallWidth, totalH: totalH,
+                pilXs: pilXs, bayW: bayW, camX: camX,
+                shelfYs: shelfYs, shelfHs: shelfHs,
+                undersideHs: undersideHs, topHs: topHs,
+              ),
             ),
           ),
         ),
@@ -202,9 +221,27 @@ class ShelfWall extends StatelessWidget {
               wallW: wallWidth, pilXs: pilXs,
             ),
           ),
+        // セクションラベル — 各棚板前面エッジに貼り付け（本レイヤーの外・柱の手前）
+        for (int i = 0; i < nRows; i++)
+          for (int j = 0; j < pilXs.length - 1; j++)
+            if (pilXs[j + 1] - pilXs[j] - _kPilW > 40)
+              Positioned(
+                left: pilXs[j] + _kPilW + 8,
+                top:  shelfYs[i] + topHs[i], // 棚板topH面の前縁（faceH開始点）
+                child: IgnorePointer(
+                  child: _SectionLabel(
+                    style: _popStyles[rows[i].label] ?? _popStyles['FEATURED']!,
+                    camX: camX,
+                    labelCenterX: pilXs[j] + _kPilW + 8 + 42,
+                  ),
+                ),
+              ),
+        // 最前面の柱も描画のみ（タップ透過）
         Positioned.fill(
-          child: CustomPaint(
-            painter: _PillarFacePainter(totalH: totalH, pilXs: pilXs),
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _PillarFacePainter(totalH: totalH, pilXs: pilXs),
+            ),
           ),
         ),
       ]),
@@ -520,9 +557,6 @@ class _BooksLayer extends StatelessWidget {
       games: games, row: 0, wallWidth: wallW,
       rng: math.Random(seed), pilXs: pilXs,
     );
-    final pops   = ShelfLayoutEngine.generatePops(
-      label: label, seed: seed, wallWidth: wallW,
-    );
     final sorted = [...boxes]..sort((a, b) => a.zIndex.compareTo(b.zIndex));
 
     return Stack(clipBehavior: Clip.hardEdge, children: [
@@ -536,10 +570,29 @@ class _BooksLayer extends StatelessWidget {
             child: Stack(clipBehavior: Clip.hardEdge, children: [
               ...sorted
                 .where((p) =>
-                  p.x + p.width > pilXs[i] + _kPilW &&
+                  p.x >= pilXs[i] + _kPilW &&
                   p.x < pilXs[i + 1])
                 .map((p) {
                   final localX = p.x - (pilXs[i] + _kPilW);
+                  final posePrefix = p.pose == BoxPose.face
+                      ? 'f'
+                      : p.pose == BoxPose.stack
+                          ? 's'
+                          : 'sp';
+                  final heroTag = p.pose == BoxPose.stack
+                      ? 'game_box_s_${seed}_${p.x.toInt()}_${p.stackLayer}'
+                      : 'game_box_${posePrefix}_${seed}_${p.x.toInt()}';
+                  void navigateToDetail() {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GameDetailScreen(
+                          game: p.game,
+                          heroTag: heroTag,
+                        ),
+                      ),
+                    );
+                  }
                   if (p.pose == BoxPose.stack) {
                     final t = (kRowHeight - p.height
                         - p.stackLayer * (p.height + 1.5))
@@ -547,114 +600,131 @@ class _BooksLayer extends StatelessWidget {
                     return Positioned(
                       left: localX, top: t,
                       width: p.width, height: p.height,
-                      child: StackBoxWidget(
-                          key: ValueKey('s${seed}_${p.x.toInt()}'), p: p),
+                      child: TappableBox(
+                        key: ValueKey(heroTag),
+                        heroTag: heroTag,
+                        onTap: navigateToDetail,
+                        child: StackBoxWidget(p: p),
+                      ),
                     );
                   }
                   return Positioned(
                     left: localX, bottom: 0,
                     width: p.width, height: p.height,
-                    child: p.pose == BoxPose.face
-                        ? FaceBoxWidget(
-                            key: ValueKey('f${seed}_${p.x.toInt()}'), p: p)
-                        : SpineBoxWidget(
-                            key: ValueKey('sp${seed}_${p.x.toInt()}'), p: p),
+                    child: TappableBox(
+                      key: ValueKey(heroTag),
+                      heroTag: heroTag,
+                      onTap: navigateToDetail,
+                      child: p.pose == BoxPose.face
+                          ? FaceBoxWidget(p: p)
+                          : SpineBoxWidget(p: p),
+                    ),
                   );
                 }),
             ]),
           ),
         ),
-      ...pops.map((pop) {
-        final sz = kPopSize[pop.type]!;
-        final st = _popStyles[pop.label] ?? _popStyles['FEATURED']!;
-        return Positioned(
-          left:   pop.x - sz.width / 2,
-          bottom: 0,
-          child:  _PopWidget(pop: pop, style: st, sz: sz),
-        );
-      }),
     ]);
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// POP Widget
+// セクションラベル — 棚板直下・ベイ左上に固定
+// 実店舗（すごろくや等）のサインカード再現
 // ══════════════════════════════════════════════════════════════════
-class _PopWidget extends StatelessWidget {
-  const _PopWidget({required this.pop, required this.style, required this.sz});
-  final PlacedPop pop; final _PS style; final Size sz;
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({
+    required this.style, required this.camX, required this.labelCenterX,
+  });
+  final _PS style;
+  final double camX;
+  final double labelCenterX;
+
+  static const _w = 84.0;
+  static const _h = 28.0;
 
   @override
   Widget build(BuildContext context) {
-    final rng  = math.Random(pop.seed);
-    final tilt = pop.type == PopType.lean
-        ? (rng.nextBool() ? 1 : -1) * (0.12 + rng.nextDouble() * 0.14)
-        : (rng.nextDouble() - 0.5) * (pop.type == PopType.plate ? 0.04 : 0.20);
-    return Transform.rotate(
-      angle: tilt,
-      alignment: pop.type == PopType.plate ? Alignment.center : Alignment.bottomCenter,
-      child: SizedBox(width: sz.width, height: sz.height,
-        child: CustomPaint(
-          painter: _PopPainter(style: style, type: pop.type),
-          child: _popText())),
+    return SizedBox(
+      width: _w, height: _h,
+      child: CustomPaint(
+        painter: _SectionLabelPainter(
+            style: style, camX: camX, centerX: labelCenterX),
+      ),
     );
   }
-
-  Widget _popText() {
-    final ip = pop.type == PopType.plate;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(5, ip ? 4 : 10, 5, ip ? 4 : 8),
-      child: Center(child: Text(
-        ip ? style.text.replaceAll('\n', ' ') : style.text,
-        textAlign: TextAlign.center, maxLines: ip ? 1 : 3,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: style.fg, fontSize: ip ? 11 : 12.0,
-          fontWeight: FontWeight.w900, height: 1.4, letterSpacing: 0.5,
-          shadows: [Shadow(
-            color: Colors.black.withOpacity(0.22),
-            offset: const Offset(0, 1), blurRadius: 3)]))));
-  }
 }
 
-class _PopPainter extends CustomPainter {
-  const _PopPainter({required this.style, required this.type});
-  final _PS style; final PopType type;
+class _SectionLabelPainter extends CustomPainter {
+  const _SectionLabelPainter({
+    required this.style, required this.camX, required this.centerX,
+  });
+  final _PS style;
+  final double camX, centerX;
+
   @override
-  void paint(Canvas canvas, Size s) {
-    switch (type) {
-      case PopType.stand: _drawStand(canvas, s);
-      case PopType.plate: _drawPlate(canvas, s);
-      case PopType.lean:  _drawLean(canvas, s);
+  void paint(Canvas c, Size s) {
+    const r = Radius.circular(2);
+
+    // 影（薄く、下方向のみ）
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 2, s.width, s.height), r),
+      Paint()
+        ..color = const Color(0x88000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    // 本体（クリーム地）
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, s.width, s.height), r),
+      Paint()..color = style.bg,
+    );
+
+    // セクションカラーの下ボーダー（2pt）で区別
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, s.height - 2.5, s.width, 2.5), r),
+      Paint()..color = style.dark,
+    );
+
+    // 上端：LEDの光を受けた細いハイライト
+    c.drawLine(
+      const Offset(2, 0.5), Offset(s.width - 2, 0.5),
+      Paint()..color = Colors.white.withValues(alpha: 0.70)..strokeWidth = 1.0,
+    );
+
+    // テキスト（横書き・中央揃え）
+    final tp = TextPainter(
+      text: TextSpan(
+        text: style.text,
+        style: TextStyle(
+          color: style.fg,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: s.width - 8);
+    tp.paint(c, Offset(
+      (s.width - tp.width) / 2,
+      (s.height - 2.5 - tp.height) / 2,
+    ));
+
+    // 横スクロールで側面エッジが覗く
+    final dX = camX - centerX;
+    final sideW = (dX.abs() / 280.0).clamp(0.0, 1.0) * 2.0;
+    if (sideW > 0.3) {
+      final showLeft = dX > 0;
+      c.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(showLeft ? 0 : s.width - sideW, 0, sideW, s.height), r),
+        Paint()..color = Colors.black.withValues(alpha: 0.50),
+      );
     }
   }
-  void _drawStand(Canvas c, Size s) {
-    final b = RRect.fromRectAndRadius(Rect.fromLTWH(0,0,s.width,s.height*.92), const Radius.circular(3));
-    _sh(c,Path()..addRRect(b)); c.drawRRect(b, Paint()..color=style.bg);
-    _gl(c,s,s.height*.92*.4);
-    c.drawRect(Rect.fromLTWH(0,6,3.5,s.height*.92-12), Paint()..color=style.dark.withOpacity(.55));
-    _bd(c,Path()..addRRect(b));
-    c.drawPath(Path()..moveTo(s.width*.35,s.height*.92)..lineTo(s.width*.65,s.height*.92)..lineTo(s.width*.5,s.height)..close(), Paint()..color=style.dark);
-  }
-  void _drawPlate(Canvas c, Size s) {
-    final b = RRect.fromRectAndRadius(Rect.fromLTWH(0,0,s.width,s.height), Radius.circular(s.height/2));
-    _sh(c,Path()..addRRect(b)); c.drawRRect(b, Paint()..color=style.bg);
-    _gl(c,s,s.height*.55); _bd(c,Path()..addRRect(b));
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0,0,6,s.height),Radius.circular(s.height/2)), Paint()..color=style.dark.withOpacity(.7));
-  }
-  void _drawLean(Canvas c, Size s) {
-    final b = Path()..moveTo(3,1)..lineTo(s.width-2,0)..lineTo(s.width-1,s.height-2)..lineTo(1,s.height-1)..close();
-    _sh(c,b); c.drawPath(b, Paint()..color=style.bg); _gl(c,s,s.height*.38);
-    for (double y=s.height*.65; y<s.height-4; y+=9)
-      c.drawLine(Offset(6,y),Offset(s.width-6,y), Paint()..color=Colors.black.withOpacity(.08)..strokeWidth=.8);
-    _bd(c,b);
-  }
-  void _sh(Canvas c, Path p) => c.drawPath(p.shift(const Offset(2.5,4)),
-      Paint()..color=Colors.black.withOpacity(.3)..maskFilter=const MaskFilter.blur(BlurStyle.normal,8));
-  void _gl(Canvas c, Size s, double h) => c.drawRect(Rect.fromLTWH(0,0,s.width,h),
-      Paint()..shader=LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,
-          colors:[Colors.white.withOpacity(.32),Colors.transparent]).createShader(Rect.fromLTWH(0,0,s.width,h)));
-  void _bd(Canvas c, Path p) => c.drawPath(p,
-      Paint()..color=Colors.black.withOpacity(.13)..style=PaintingStyle.stroke..strokeWidth=.9);
-  @override bool shouldRepaint(_) => false;
-}
 
+  @override
+  bool shouldRepaint(_SectionLabelPainter o) =>
+      o.camX != camX || o.centerX != centerX || o.style.dark != style.dark;
+}

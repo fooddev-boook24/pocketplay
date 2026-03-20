@@ -4,6 +4,115 @@ import '../data/models/game.dart';
 import 'shelf_engine.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TappableBox — アニメーション付きタップラッパー（既存描画コード不変）
+// Phase 1: press-in 80ms (scale 1.0→0.96)
+// Phase 2: fly-out 140ms (scale 0.96→1.08, translateY 0→-8px)
+// Phase 3: Hero遷移（onTapコールバック呼び出し）
+// ─────────────────────────────────────────────────────────────────────────────
+class TappableBox extends StatefulWidget {
+  const TappableBox({
+    super.key,
+    required this.heroTag,
+    required this.child,
+    required this.onTap,
+  });
+  final String heroTag;
+  final Widget child;
+  final VoidCallback onTap;
+
+  @override
+  State<TappableBox> createState() => _TappableBoxState();
+}
+
+class _TappableBoxState extends State<TappableBox>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _translateY;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
+    );
+    _scale = TweenSequence<double>([
+      // Phase 1: press-in 100ms (weight 21 = 100/480)
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 0.93)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 21,
+      ),
+      // Phase 2: hold 80ms
+      TweenSequenceItem(
+        tween: ConstantTween(0.93),
+        weight: 17,
+      ),
+      // Phase 3: fly-out 300ms (weight 62 = 300/480)
+      TweenSequenceItem(
+        tween: Tween(begin: 0.93, end: 1.12)
+            .chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 62,
+      ),
+    ]).animate(_ctrl);
+    _translateY = TweenSequence<double>([
+      TweenSequenceItem(tween: ConstantTween(0.0), weight: 38),
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: -14.0)
+            .chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 62,
+      ),
+    ]).animate(_ctrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails _) {
+    _ctrl.animateTo(0.38, duration: const Duration(milliseconds: 180));
+  }
+
+  void _onTapUp(TapUpDetails _) {
+    _ctrl
+        .animateTo(1.0, duration: const Duration(milliseconds: 300))
+        .then((_) {
+      if (mounted) {
+        widget.onTap();
+        _ctrl.reset();
+      }
+    });
+  }
+
+  void _onTapCancel() {
+    _ctrl.animateTo(0.0, duration: const Duration(milliseconds: 150));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      child: Hero(
+        tag: widget.heroTag,
+        child: AnimatedBuilder(
+          animation: _ctrl,
+          builder: (_, child) => Transform.translate(
+            offset: Offset(0, _translateY.value),
+            child: Transform.scale(scale: _scale.value, child: child),
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GameImage — network → local asset → spine placeholder
 // ─────────────────────────────────────────────────────────────────────────────
 class GameImage extends StatelessWidget {

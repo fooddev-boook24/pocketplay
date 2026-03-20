@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if true; // TODO: Firebase Auth実装後に制限する
+    }
+    match /shelves/{shelfId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

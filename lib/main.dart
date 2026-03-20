@@ -1,8 +1,20 @@
+import 'dart:developer' as dev;
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'core/firebase_options.dart';
 import 'features/home/home_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    dev.log('Firebase initialized', name: 'main');
+  } catch (e) {
+    dev.log('Firebase init failed: $e — using local data', name: 'main');
+  }
   runApp(const ProviderScope(child: PocketPlayApp()));
 }
 
