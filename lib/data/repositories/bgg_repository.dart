@@ -13,6 +13,9 @@ class BggRepository {
   final Map<int, String> _cache = {};
   final Map<int, GameDetail> _detailCache = {};
 
+  /// BGG画像キャッシュ（bggId → imageUrl）の読み取り専用ビュー
+  Map<int, String> get imageCache => Map.unmodifiable(_cache);
+
   static Map<String, String> get _headers {
     final token = AppConstants.bggAppToken;
     return {

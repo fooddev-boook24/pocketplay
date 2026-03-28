@@ -51,6 +51,7 @@ class Game {
 
   Game copyWith({
     String? imageUrl,
+    String? localAsset,
     String? thumbnailUrl,
     int? minPlayers,
     int? maxPlayers,
@@ -70,7 +71,7 @@ class Game {
         size: size,
         faceAspect: faceAspect,
         imageUrl: imageUrl ?? this.imageUrl,
-        localAsset: localAsset,
+        localAsset: localAsset ?? this.localAsset,
         thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
         minPlayers: minPlayers ?? this.minPlayers,
         maxPlayers: maxPlayers ?? this.maxPlayers,

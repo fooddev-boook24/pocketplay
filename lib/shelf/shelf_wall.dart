@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
-import '../data/repositories/game_provider.dart';
+import '../data/repositories/game_provider.dart' show ShelfRow, ShelfBayConfig;
 import '../features/game_detail/game_detail_screen.dart';
 import 'box_widgets.dart';
 import 'shelf_engine.dart';
@@ -67,6 +67,7 @@ const _popStyles = {
   'NEGOTIATION':   _PS('交　渉',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFA04848)),
   'PUZZLE':        _PS('パズル',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF508070)),
   'LIGHT & QUICK': _PS('ライト',   Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFF70A050)),
+  'RANKING':       _PS('ランキング', Color(0xFFF2E8D8), Color(0xFF1A0800), Color(0xFFD09248)),
 };
 
 @immutable
@@ -169,6 +170,46 @@ class ShelfWall extends StatelessWidget {
     }
     final totalH = curY;
 
+    // 行ごとのベイ設定を事前計算
+    final rowBayConfigs = <List<ShelfBayConfig>>[];
+    final rowSkipBays   = <int?>[];
+    // ランクPOPの配置情報: [(left絶対座標, rank番号)]
+    final rowRankPopPositions = <List<({double left, int rank})>>[];
+
+    for (int i = 0; i < nRows; i++) {
+      final bcs = List.generate(pilXs.length - 1, (j) => rows[i].bayConfig(j));
+      rowBayConfigs.add(bcs);
+      int? skip;
+      for (int j = 0; j < bcs.length; j++) {
+        if (bcs[j].label == 'RANKING') { skip = j; break; }
+      }
+      rowSkipBays.add(skip);
+
+      // RANKINGベイがあればランクPOP位置を計算
+      if (skip != null) {
+        final bayLeft = pilXs[skip] + _kPilW;
+        final bayW    = pilXs[skip + 1] - pilXs[skip] - _kPilW;
+        final (:dims, :spacing) = _RankingBayOverlay.computeLayout(
+          bcs[skip].gameIds, games, bayW,
+        );
+        // カテゴリPOPは left=22, width=84 → 右端 106 + 余白8 = 114px
+        const sectionLabelEnd = 22.0 + 84.0 + 8.0;
+        double cursor = spacing;
+        final pops = <({double left, int rank})>[];
+        for (int r = 0; r < dims.length; r++) {
+          final w       = dims[r].$2;
+          final centerX = cursor + w / 2;    // ベイ内相対X
+          // 重なる場合はカテゴリPOP右端に寄せて必ず表示
+          final popLeft = (centerX - 26).clamp(sectionLabelEnd, double.infinity);
+          pops.add((left: bayLeft + popLeft, rank: r + 1));
+          cursor += w + spacing;
+        }
+        rowRankPopPositions.add(pops);
+      } else {
+        rowRankPopPositions.add([]);
+      }
+    }
+
     return SizedBox(
       width:  wallWidth,
       height: totalH,
@@ -217,25 +258,56 @@ class ShelfWall extends StatelessWidget {
             top:    rowYs[i],
             height: kRowHeight,
             child: _BooksLayer(
-              games: games, label: rows[i].label, seed: rows[i].seed,
-              wallW: wallWidth, pilXs: pilXs,
+              games: games,
+              label: rows[i].label,
+              seed: rows[i].seed,
+              wallW: wallWidth,
+              pilXs: pilXs,
+              bayConfigs: rowBayConfigs[i],
+              skipBay: rowSkipBays[i],
             ),
           ),
-        // セクションラベル — 各棚板前面エッジに貼り付け（本レイヤーの外・柱の手前）
+        // セクションラベル — 全ベイ表示（RANKINGも "ランキング" POP を表示）
         for (int i = 0; i < nRows; i++)
           for (int j = 0; j < pilXs.length - 1; j++)
             if (pilXs[j + 1] - pilXs[j] - _kPilW > 40)
               Positioned(
-                left: pilXs[j] + _kPilW + 8,
-                top:  shelfYs[i] + topHs[i], // 棚板topH面の前縁（faceH開始点）
+                left: pilXs[j] + _kPilW + 22,
+                top:  shelfYs[i] + topHs[i],
                 child: IgnorePointer(
                   child: _SectionLabel(
-                    style: _popStyles[rows[i].label] ?? _popStyles['FEATURED']!,
+                    style: _popStyles[rowBayConfigs[i][j].label] ?? _popStyles['FEATURED']!,
                     camX: camX,
-                    labelCenterX: pilXs[j] + _kPilW + 8 + 42,
+                    labelCenterX: pilXs[j] + _kPilW + 22 + 42,
+                    tiltSeed: j * 7 + i * 13,
                   ),
                 ),
               ),
+        // RANKINGオーバーレイ — 該当ベイのみ、収まらないゲームはスキップ
+        for (int i = 0; i < nRows; i++)
+          if (rowSkipBays[i] != null)
+            Positioned(
+              left:   pilXs[rowSkipBays[i]!] + _kPilW,
+              top:    rowYs[i],
+              width:  pilXs[rowSkipBays[i]! + 1] - pilXs[rowSkipBays[i]!] - _kPilW,
+              height: kRowHeight,
+              child: _RankingBayOverlay(
+                gameIds:  rowBayConfigs[i][rowSkipBays[i]!].gameIds,
+                allGames: games,
+                bayWidth: pilXs[rowSkipBays[i]! + 1] - pilXs[rowSkipBays[i]!] - _kPilW,
+                rowIndex: i,
+              ),
+            ),
+        // ランクPOP — カテゴリPOPと同じ棚板レベルに配置、"ランキング"POPと重ならないよう左を空ける
+        for (int i = 0; i < nRows; i++)
+          for (final (:left, :rank) in rowRankPopPositions[i])
+            Positioned(
+              left:   left,
+              top:    shelfYs[i] + topHs[i],
+              width:  52,
+              height: 22,
+              child: IgnorePointer(child: _RankPop(rank: rank)),
+            ),
         // 最前面の柱も描画のみ（タップ透過）
         Positioned.fill(
           child: IgnorePointer(
@@ -538,93 +610,280 @@ class _PillarFacePainter extends CustomPainter {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// _RankingBayOverlay — RANKINGベイにランキング1〜5位を正面表示
+// ・収まらないゲームはスキップ（クリップ禁止）
+// ・ランクPOPはパッケージではなく棚板レベルに貼り付け
+// ══════════════════════════════════════════════════════════════════
+class _RankingBayOverlay extends StatelessWidget {
+  const _RankingBayOverlay({
+    required this.gameIds,
+    required this.allGames,
+    required this.bayWidth,
+    required this.rowIndex,
+  });
+  final List<String> gameIds;
+  final List<Game>   allGames;
+  final double       bayWidth;
+  final int          rowIndex;
+
+  static double _faceH(BoxSize s) {
+    switch (s) {
+      case BoxSize.tiny:   return kRowHeight * 0.50;
+      case BoxSize.small:  return kRowHeight * 0.62;
+      case BoxSize.medium: return kRowHeight * 0.74;
+      case BoxSize.large:  return kRowHeight * 0.84;
+    }
+  }
+
+  /// 配置座標を計算（ShelfWallからのランクPOP配置にも使用）
+  static ({List<(Game, double, double)> dims, double spacing}) computeLayout(
+    List<String> gameIds, List<Game> allGames, double bayWidth,
+  ) {
+    final games = gameIds
+        .map((id) => allGames.firstWhere((g) => g.id == id,
+            orElse: () => allGames.first))
+        .take(5)
+        .toList();
+
+    final all = games.map((g) {
+      final h = _faceH(g.size);
+      final w = (h * g.faceAspect).clamp(50.0, 160.0);
+      return (g, w, h);
+    }).toList();
+
+    // 収まる数を計算（収まらないゲームは除外）
+    const minSpacing = 8.0;
+    for (int n = all.length; n > 0; n--) {
+      final totalW = all.take(n).fold(0.0, (s, d) => s + d.$2);
+      if (totalW + minSpacing * (n + 1) <= bayWidth) {
+        final spacing = ((bayWidth - totalW) / (n + 1)).clamp(minSpacing, 60.0);
+        return (dims: all.take(n).toList(), spacing: spacing);
+      }
+    }
+    return (dims: [], spacing: minSpacing);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (:dims, :spacing) = computeLayout(gameIds, allGames, bayWidth);
+    if (dims.isEmpty) return const SizedBox.shrink();
+
+    double cursor = spacing;
+    final widgets = <Widget>[];
+
+    for (int i = 0; i < dims.length; i++) {
+      final (game, w, h) = dims[i];
+      final rank    = i + 1;
+      final heroTag = 'ranking_${game.id}_$rank';
+      final pb = PlacedBox(
+        game: game, pose: BoxPose.face,
+        x: 0, row: rowIndex, width: w, height: h,
+      );
+
+      // パッケージ本体のみ（ランクPOPはShelfWallから棚板レベルに配置）
+      widgets.add(Positioned(
+        left: cursor, bottom: 0,
+        width: w, height: h,
+        child: TappableBox(
+          key: ValueKey(heroTag), heroTag: heroTag,
+          onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) =>
+              GameDetailScreen(game: game, heroTag: heroTag))),
+          child: FaceBoxWidget(p: pb),
+        ),
+      ));
+
+      cursor += w + spacing;
+    }
+
+    return Stack(clipBehavior: Clip.hardEdge, children: widgets);
+  }
+}
+
+/// ランクPOP — カテゴリPOPと同スタイルの棚貼り付けラベル
+class _RankPop extends StatelessWidget {
+  const _RankPop({required this.rank});
+  final int rank;
+
+  static const _gold  = Color(0xFFC89048);
+  static const _cream = Color(0xFFF2E8D8);
+  static const _dark  = Color(0xFF1A0800);
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 52, height: 22,
+      child: CustomPaint(painter: _RankPopPainter(rank: rank)),
+    );
+  }
+}
+
+class _RankPopPainter extends CustomPainter {
+  const _RankPopPainter({required this.rank});
+  final int rank;
+
+  static const _gold  = Color(0xFFC89048);
+  static const _cream = Color(0xFFF2E8D8);
+  static const _dark  = Color(0xFF1A0800);
+
+  @override
+  void paint(Canvas c, Size s) {
+    const r = Radius.circular(2);
+    final isFirst = rank == 1;
+
+    // 影
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 2, s.width, s.height), r),
+      Paint()..color = const Color(0x80000000)
+             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
+    // 本体
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, s.width, s.height), r),
+      Paint()..color = isFirst ? _gold : _cream,
+    );
+    // 左アクセントバー
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, 3.5, s.height), r),
+      Paint()..color = _gold,
+    );
+    // 下ボーダー
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, s.height - 2, s.width, 2), r),
+      Paint()..color = _gold,
+    );
+    // テキスト
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '$rank位',
+        style: TextStyle(
+          color: isFirst ? _cream : _dark,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: s.width - 8);
+    tp.paint(c, Offset(
+      4 + (s.width - 8 - tp.width) / 2 + 1,
+      (s.height - 2 - tp.height) / 2,
+    ));
+  }
+
+  @override
+  bool shouldRepaint(_RankPopPainter o) => o.rank != rank;
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 2. _BooksLayer
 // ══════════════════════════════════════════════════════════════════
 class _BooksLayer extends StatelessWidget {
   const _BooksLayer({
     required this.games, required this.label, required this.seed,
     required this.wallW, required this.pilXs,
+    this.bayConfigs,
+    this.skipBay,
   });
   final List<Game> games;
   final String label;
   final int seed;
   final double wallW;
   final List<double> pilXs;
+  /// ベイごとの設定（nullなら行デフォルトのgames/seedを使用）
+  final List<ShelfBayConfig>? bayConfigs;
+  /// このベイインデックスは空にする（RANKINGオーバーレイが上に乗るため）
+  final int? skipBay;
 
   @override
   Widget build(BuildContext context) {
-    final boxes  = ShelfLayoutEngine.generateRow(
-      games: games, row: 0, wallWidth: wallW,
-      rng: math.Random(seed), pilXs: pilXs,
+    return Stack(clipBehavior: Clip.hardEdge, children: [
+      for (int bayIdx = 0; bayIdx < pilXs.length - 1; bayIdx++)
+        _buildBay(context, bayIdx),
+    ]);
+  }
+
+  Widget _buildBay(BuildContext context, int bayIdx) {
+    final bayX = pilXs[bayIdx] + _kPilW;
+    final bayW = (pilXs[bayIdx + 1] - pilXs[bayIdx] - _kPilW).clamp(0.0, wallW);
+    if (bayW < 20) return const SizedBox.shrink();
+
+    // このベイのゲームリストとシードを決定
+    List<Game> bayGames = games;
+    int baySeed = seed + bayIdx * 997;
+
+    final bc = (bayConfigs != null && bayIdx < bayConfigs!.length)
+        ? bayConfigs![bayIdx]
+        : null;
+
+    // RANKINGベイは空にする（_RankingBayOverlayが上に描画）
+    if (bc?.label == 'RANKING' || skipBay == bayIdx) {
+      return Positioned(
+        left: bayX, top: 0, width: bayW, height: kRowHeight,
+        child: const SizedBox.shrink(),
+      );
+    }
+    if (bc != null && bc.gameIds.isNotEmpty) {
+      final mapped = bc.gameIds
+          .map((id) => games.firstWhere((g) => g.id == id,
+              orElse: () => games[bayIdx % games.length]))
+          .toList();
+      if (mapped.isNotEmpty) {
+        bayGames = mapped;
+        baySeed  = bc.seed;
+      }
+    }
+
+    // ベイ単体でgenerateRow（pilXs 2要素）
+    final boxes = ShelfLayoutEngine.generateRow(
+      games: bayGames, row: 0, wallWidth: wallW,
+      rng: math.Random(baySeed),
+      pilXs: [pilXs[bayIdx], pilXs[bayIdx + 1]],
     );
     final sorted = [...boxes]..sort((a, b) => a.zIndex.compareTo(b.zIndex));
 
-    return Stack(clipBehavior: Clip.hardEdge, children: [
-      for (int i = 0; i < pilXs.length - 1; i++)
-        Positioned(
-          left:   pilXs[i] + _kPilW,
-          top:    0,
-          width:  (pilXs[i + 1] - pilXs[i] - _kPilW).clamp(0.0, wallW),
-          height: kRowHeight,
-          child: ClipRect(
-            child: Stack(clipBehavior: Clip.hardEdge, children: [
-              ...sorted
-                .where((p) =>
-                  p.x >= pilXs[i] + _kPilW &&
-                  p.x < pilXs[i + 1])
-                .map((p) {
-                  final localX = p.x - (pilXs[i] + _kPilW);
-                  final posePrefix = p.pose == BoxPose.face
-                      ? 'f'
-                      : p.pose == BoxPose.stack
-                          ? 's'
-                          : 'sp';
-                  final heroTag = p.pose == BoxPose.stack
-                      ? 'game_box_s_${seed}_${p.x.toInt()}_${p.stackLayer}'
-                      : 'game_box_${posePrefix}_${seed}_${p.x.toInt()}';
-                  void navigateToDetail() {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => GameDetailScreen(
-                          game: p.game,
-                          heroTag: heroTag,
-                        ),
-                      ),
-                    );
-                  }
-                  if (p.pose == BoxPose.stack) {
-                    final t = (kRowHeight - p.height
-                        - p.stackLayer * (p.height + 1.5))
-                        .clamp(0.0, kRowHeight - p.height);
-                    return Positioned(
-                      left: localX, top: t,
-                      width: p.width, height: p.height,
-                      child: TappableBox(
-                        key: ValueKey(heroTag),
-                        heroTag: heroTag,
-                        onTap: navigateToDetail,
-                        child: StackBoxWidget(p: p),
-                      ),
-                    );
-                  }
-                  return Positioned(
-                    left: localX, bottom: 0,
-                    width: p.width, height: p.height,
-                    child: TappableBox(
-                      key: ValueKey(heroTag),
-                      heroTag: heroTag,
-                      onTap: navigateToDetail,
-                      child: p.pose == BoxPose.face
-                          ? FaceBoxWidget(p: p)
-                          : SpineBoxWidget(p: p),
-                    ),
-                  );
-                }),
-            ]),
-          ),
-        ),
-    ]);
+    return Positioned(
+      left: bayX, top: 0, width: bayW, height: kRowHeight,
+      child: ClipRect(
+        child: Stack(clipBehavior: Clip.hardEdge, children: [
+          ...sorted
+            .where((p) => p.x >= bayX && p.x < pilXs[bayIdx + 1])
+            .map((p) {
+              final localX = p.x - bayX;
+              final posePrefix = p.pose == BoxPose.face
+                  ? 'f' : p.pose == BoxPose.stack ? 's' : 'sp';
+              final heroTag = p.pose == BoxPose.stack
+                  ? 'game_box_s_${baySeed}_${p.x.toInt()}_${p.stackLayer}'
+                  : 'game_box_${posePrefix}_${baySeed}_${p.x.toInt()}';
+              void navigateToDetail() {
+                Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => GameDetailScreen(game: p.game, heroTag: heroTag),
+                ));
+              }
+              if (p.pose == BoxPose.stack) {
+                final t = (kRowHeight - p.height
+                    - p.stackLayer * (p.height + 1.5))
+                    .clamp(0.0, kRowHeight - p.height);
+                return Positioned(
+                  left: localX, top: t, width: p.width, height: p.height,
+                  child: TappableBox(
+                    key: ValueKey(heroTag), heroTag: heroTag, onTap: navigateToDetail,
+                    child: StackBoxWidget(p: p),
+                  ),
+                );
+              }
+              return Positioned(
+                left: localX, bottom: 0, width: p.width, height: p.height,
+                child: TappableBox(
+                  key: ValueKey(heroTag), heroTag: heroTag, onTap: navigateToDetail,
+                  child: p.pose == BoxPose.face
+                      ? FaceBoxWidget(p: p) : SpineBoxWidget(p: p),
+                ),
+              );
+            }),
+        ]),
+      ),
+    );
   }
 }
 
@@ -635,10 +894,12 @@ class _BooksLayer extends StatelessWidget {
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({
     required this.style, required this.camX, required this.labelCenterX,
+    this.tiltSeed = 0,
   });
   final _PS style;
   final double camX;
   final double labelCenterX;
+  final int tiltSeed;
 
   static const _w = 84.0;
   static const _h = 28.0;
@@ -666,7 +927,7 @@ class _SectionLabelPainter extends CustomPainter {
   void paint(Canvas c, Size s) {
     const r = Radius.circular(2);
 
-    // 影（薄く、下方向のみ）
+    // ── 影（薄く、下方向のみ）────────────────────────────────
     c.drawRRect(
       RRect.fromRectAndRadius(Rect.fromLTWH(0, 2, s.width, s.height), r),
       Paint()
@@ -674,26 +935,32 @@ class _SectionLabelPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
 
-    // 本体（クリーム地）
+    // ── 本体（クリーム地）────────────────────────────────────
     c.drawRRect(
       RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, s.width, s.height), r),
       Paint()..color = style.bg,
     );
 
-    // セクションカラーの下ボーダー（2pt）で区別
+    // ── 左アクセントバー（セクションカラー）──────────────────
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, 3.5, s.height), r),
+      Paint()..color = style.dark,
+    );
+
+    // ── 下ボーダー（セクションカラー）────────────────────────
     c.drawRRect(
       RRect.fromRectAndRadius(
           Rect.fromLTWH(0, s.height - 2.5, s.width, 2.5), r),
       Paint()..color = style.dark,
     );
 
-    // 上端：LEDの光を受けた細いハイライト
+    // ── 上端ハイライト（LEDの光）─────────────────────────────
     c.drawLine(
       const Offset(2, 0.5), Offset(s.width - 2, 0.5),
       Paint()..color = Colors.white.withValues(alpha: 0.70)..strokeWidth = 1.0,
     );
 
-    // テキスト（横書き・中央揃え）
+    // ── テキスト（横書き・中央揃え）──────────────────────────
     final tp = TextPainter(
       text: TextSpan(
         text: style.text,
@@ -705,21 +972,21 @@ class _SectionLabelPainter extends CustomPainter {
         ),
       ),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: s.width - 8);
+    )..layout(maxWidth: s.width - 12);
     tp.paint(c, Offset(
-      (s.width - tp.width) / 2,
+      5 + (s.width - 12 - tp.width) / 2 + 1,
       (s.height - 2.5 - tp.height) / 2,
     ));
 
-    // 横スクロールで側面エッジが覗く
+    // ── 横スクロールで側面エッジが覗く ───────────────────────
     final dX = camX - centerX;
-    final sideW = (dX.abs() / 280.0).clamp(0.0, 1.0) * 2.0;
+    final sideW = (dX.abs() / 280.0).clamp(0.0, 1.0) * 2.5;
     if (sideW > 0.3) {
       final showLeft = dX > 0;
       c.drawRRect(
         RRect.fromRectAndRadius(
             Rect.fromLTWH(showLeft ? 0 : s.width - sideW, 0, sideW, s.height), r),
-        Paint()..color = Colors.black.withValues(alpha: 0.50),
+        Paint()..color = Colors.black.withValues(alpha: 0.45),
       );
     }
   }

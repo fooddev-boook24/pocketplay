@@ -100,14 +100,14 @@ class ShelfLayoutEngine {
     final faceSlots  = <int>{};
     final stackSlots = <int>{};
 
-    int nextFace = 1 + rng.nextInt(2);
-    while (nextFace < estSlots) {
-      faceSlots.add(nextFace);
-      nextFace += 3 + rng.nextInt(4);
+    // 正面85%以上: ほぼ全スロットを正面に、スパインを点在させる
+    for (int s = 0; s < estSlots; s++) {
+      if (rng.nextDouble() < 0.87) faceSlots.add(s);
     }
-    for (int s = 0; s < rng.nextInt(2); s++) {
-      int p = 2 + rng.nextInt(math.max(1, estSlots - 4));
-      while (faceSlots.contains(p) || stackSlots.contains(p)) p++;
+    // 横積みは最大1つ（確率20%）
+    if (rng.nextDouble() < 0.20) {
+      final p = 1 + rng.nextInt(math.max(1, estSlots - 2));
+      faceSlots.remove(p);
       stackSlots.add(p);
     }
 

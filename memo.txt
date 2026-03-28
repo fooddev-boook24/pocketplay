@@ -4,3 +4,17 @@ flutter run --release -d 00008110-001E4C9A3E91401E
 import 'package:flutter/painting.dart';
 claude --continue
 
+BGG token
+117fef78-f027-4575-894e-7600ca9bb463
+
+棚の特に下2段のパッケージの置き方あってる？
+縮小すると板がかなり太くなるけど、パッケージの置き場所が変わってない
+
+"x-admin-key: pocketplay-admin-2026
+
+
+117fef78-f027-4575-894e-7600ca9bb463
+
+1位のPOPがない
+
+

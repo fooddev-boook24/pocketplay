@@ -1,5 +1,6 @@
 import 'dart:developer' as dev;
 import '../models/game.dart';
+import '../repositories/bgg_repository.dart';
 import '../repositories/game_data_repository.dart';
 import '../repositories/rakuten_repository.dart';
 import '../repositories/yahoo_repository.dart';
@@ -25,8 +26,8 @@ class DataPipelineService {
       if (firestoreGames.isNotEmpty) {
         dev.log('Using ${firestoreGames.length} games from Firestore', name: 'DataPipelineService');
         // kSeedGamesのlocalAssetをマージ（Firestoreには保存しないローカルパス）
-        final games = _mergeLocalAssets(firestoreGames);
-        // サムネイルがないゲームを楽天バッチ取得（バックグラウンド）
+        final games = _mergeBggCache(_mergeLocalAssets(firestoreGames));
+        // バックグラウンドでBGG画像＋楽天URLを取得
         Future.delayed(Duration.zero, () => _batchFetchMissing(games));
         return games;
       }
@@ -35,33 +36,59 @@ class DataPipelineService {
       dev.log('Firestore empty, seeding with local data...', name: 'DataPipelineService');
       await _repo.saveGames(_buildSeedGames());
       dev.log('Seeded ${kSeedGames.length} games to Firestore', name: 'DataPipelineService');
-      return kSeedGames;
+      final games = _mergeBggCache(kSeedGames);
+      Future.delayed(Duration.zero, () => _batchFetchMissing(games));
+      return games;
     } catch (e) {
       dev.log('getGames error: $e — fallback to local', name: 'DataPipelineService');
-      return kSeedGames;
+      final games = _mergeBggCache(kSeedGames);
+      Future.delayed(Duration.zero, () => _batchFetchMissing(games));
+      return games;
     }
   }
 
-  /// thumbnailUrl/rakutenAffUrlが未取得のゲームを楽天でバッチ取得
+  /// BGG画像＋楽天URLをバックグラウンドで一括取得
   Future<void> _batchFetchMissing(List<Game> games) async {
-    final missing = games
+    // ── 1. BGG画像取得（imageUrlがないゲーム）────────────────────────────
+    final noImage = games
+        .where((g) => g.imageUrl == null && g.localAsset == null)
+        .toList();
+    if (noImage.isNotEmpty) {
+      dev.log('Fetching BGG images for ${noImage.length} games',
+          name: 'DataPipelineService');
+      final imageMap = await BggRepository.instance.fetchImages(noImage);
+      // Firestoreに保存（失敗しても続行）
+      for (final game in noImage) {
+        final url = imageMap[game.bggId];
+        if (url != null) {
+          try {
+            await _repo.saveGame(game.copyWith(imageUrl: url));
+          } catch (_) {}
+        }
+      }
+      if (imageMap.isNotEmpty) {
+        dev.log('BGG images fetched: ${imageMap.length}', name: 'DataPipelineService');
+        onBatchComplete?.call(); // BGG完了時点で棚を更新
+      }
+    }
+
+    // ── 2. 楽天URL取得（未取得ゲーム）──────────────────────────────────
+    final missingRakuten = games
         .where((g) => g.rakutenAffUrl == null || g.rakutenAffUrl!.isEmpty)
         .toList();
-    if (missing.isEmpty) return;
+    if (missingRakuten.isEmpty) return;
 
-    dev.log('Batch fetching Rakuten for ${missing.length} games',
+    dev.log('Batch fetching Rakuten for ${missingRakuten.length} games',
         name: 'DataPipelineService');
     int count = 0;
-    for (final game in missing) {
+    for (final game in missingRakuten) {
       await getOrFetchRakutenUrl(game);
       count++;
-      // レート制限対策: 1秒間隔
-      if (count < missing.length) {
+      if (count < missingRakuten.length) {
         await Future.delayed(const Duration(seconds: 1));
       }
     }
-    dev.log('Batch complete ($count games)', name: 'DataPipelineService');
-    // 棚を再描画するためにコールバックを呼ぶ
+    dev.log('Rakuten batch complete ($count games)', name: 'DataPipelineService');
     onBatchComplete?.call();
   }
 
@@ -106,19 +133,29 @@ class DataPipelineService {
     }
   }
 
-  /// kSeedGamesのlocalAssetとマージ（Firestoreデータを優先）
+  /// kSeedGamesのlocalAssetをFirestoreゲームにマージ（Firestoreには保存しないローカルパス）
   List<Game> _mergeLocalAssets(List<Game> firestoreGames) {
     return firestoreGames.map((fg) {
+      if (fg.imageUrl != null) return fg;
       final seed = kSeedGames.firstWhere(
         (s) => s.id == fg.id,
         orElse: () => fg,
       );
-      // Firestoreにimageがあればそちらを使い、なければlocalAssetへフォールバック
-      if (fg.imageUrl != null) return fg;
       if (seed.localAsset != null) {
-        return fg.copyWith(imageUrl: seed.imageUrl);
+        return fg.copyWith(localAsset: seed.localAsset);
       }
       return fg;
+    }).toList();
+  }
+
+  /// BggRepositoryのメモリキャッシュをゲームリストにマージ
+  List<Game> _mergeBggCache(List<Game> games) {
+    final cache = BggRepository.instance.imageCache;
+    if (cache.isEmpty) return games;
+    return games.map((g) {
+      if (g.imageUrl != null || g.localAsset != null) return g;
+      final url = cache[g.bggId];
+      return url != null ? g.copyWith(imageUrl: url) : g;
     }).toList();
   }
 

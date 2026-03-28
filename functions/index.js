@@ -11,6 +11,7 @@ const db = admin.firestore();
 // BGGトークンはFirebase Secret Managerで管理
 // デプロイ前に: firebase functions:secrets:set BGG_APP_TOKEN
 const bggToken = defineSecret('BGG_APP_TOKEN');
+const adminKey = defineSecret('ADMIN_KEY');
 
 const BGG_API = 'https://boardgamegeek.com/xmlapi2/thing';
 const BATCH_SIZE = 20;
@@ -238,14 +239,14 @@ exports.dailyBggSync = onSchedule(
 // ─── HTTP Function（手動トリガー・デバッグ用）────────────────────────────────
 exports.manualBggSync = onRequest(
   {
-    secrets: [bggToken],
+    secrets: [bggToken, adminKey],
     memory: '256MiB',
     timeoutSeconds: 300,
   },
   async (req, res) => {
     // 簡易認証（本番では Firebase Auth に変更すること）
     const key = req.headers['x-admin-key'];
-    if (key !== process.env.ADMIN_KEY) {
+    if (key !== adminKey.value()) {
       res.status(403).send('Forbidden');
       return;
     }
