@@ -50,5 +50,18 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- iOS 14+ ATT: ユーザーの許可なしでもAdMobは動作するが、審査通過に必要 -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>より関連性の高い広告を表示するために使用されます。</string>
+	<!-- AdMob: テスト用App ID。本番リリース前に実際のApp IDに差し替える -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-1178983985791938~1501772240</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 </dict>
 </plist>

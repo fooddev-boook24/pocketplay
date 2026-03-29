@@ -1,5 +1,6 @@
 import 'dart:developer' as dev;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import '../models/game.dart';
 
 /// Firestore CRUD — games コレクション
@@ -73,20 +74,22 @@ class GameDataRepository {
   Game? _docToGame(DocumentSnapshot doc) {
     try {
       final d = doc.data() as Map<String, dynamic>;
-      final seed = kSeedGames.firstWhere(
-        (g) => g.id == doc.id,
-        orElse: () => kSeedGames.first,
-      );
-      final game = seed.copyWith(
-        imageUrl:       d['imageUrl'] as String?,
-        thumbnailUrl:   d['thumbnailUrl'] as String?,
-        minPlayers:     d['minPlayers'] as int?,
-        maxPlayers:     d['maxPlayers'] as int?,
+
+      // kSeedGamesに一致するものはシードをベースに復元（spineColor等を保持）
+      final seedMatch = kSeedGames.where((g) => g.id == doc.id).firstOrNull;
+      final base = seedMatch ?? _gameFromDoc(doc.id, d);
+      if (base == null) return null;
+
+      final game = base.copyWith(
+        imageUrl:        d['imageUrl'] as String?,
+        thumbnailUrl:    d['thumbnailUrl'] as String?,
+        minPlayers:      d['minPlayers'] as int?,
+        maxPlayers:      d['maxPlayers'] as int?,
         playTimeMinutes: d['playTimeMinutes'] as int?,
-        bggRating:      (d['bggRating'] as num?)?.toDouble(),
-        categories:     (d['categories'] as List?)?.cast<String>(),
-        description:    d['description'] as String?,
-        rakutenAffUrl:  d['rakutenAffUrl'] as String?,
+        bggRating:       (d['bggRating'] as num?)?.toDouble(),
+        categories:      (d['categories'] as List?)?.cast<String>(),
+        description:     d['description'] as String?,
+        rakutenAffUrl:   d['rakutenAffUrl'] as String?,
       );
       dev.log('${doc.id}: players=${game.minPlayers}-${game.maxPlayers} time=${game.playTimeMinutes}',
           name: 'GameDataRepository');
@@ -97,10 +100,48 @@ class GameDataRepository {
     }
   }
 
+  /// kSeedGamesに存在しないゲーム（BGGホットゲーム等）をドキュメントから直接構築
+  Game? _gameFromDoc(String id, Map<String, dynamic> d) {
+    final bggId = d['bggId'] as int?;
+    final title = d['title'] as String?;
+    if (bggId == null || title == null || title.isEmpty) return null;
+
+    final spineColorVal = d['spineColor'] as int?;
+    final spineTextColorVal = d['spineTextColor'] as int?;
+    final sizeStr = d['size'] as String?;
+
+    return Game(
+      id: id,
+      bggId: bggId,
+      title: title,
+      spineColor: spineColorVal != null
+          ? Color(spineColorVal)
+          : const Color(0xFF4A3820),
+      spineTextColor: spineTextColorVal != null
+          ? Color(spineTextColorVal)
+          : Colors.white,
+      size: _sizeFromString(sizeStr),
+      faceAspect: (d['faceAspect'] as num?)?.toDouble() ?? 0.88,
+    );
+  }
+
+  BoxSize _sizeFromString(String? s) {
+    switch (s) {
+      case 'tiny':   return BoxSize.tiny;
+      case 'small':  return BoxSize.small;
+      case 'large':  return BoxSize.large;
+      default:       return BoxSize.medium;
+    }
+  }
+
   Map<String, dynamic> _gameToDoc(Game game) => {
     'id':             game.id,
     'bggId':          game.bggId,
     'title':          game.title,
+    'spineColor':     game.spineColor.value,
+    'spineTextColor': game.spineTextColor.value,
+    'size':           game.size.name,
+    'faceAspect':     game.faceAspect,
     'imageUrl':       game.imageUrl,
     'thumbnailUrl':   game.thumbnailUrl,
     'minPlayers':     game.minPlayers,

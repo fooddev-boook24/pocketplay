@@ -17,4 +17,10 @@ class AffiliateService {
         '&tag=${AppConstants.amazonAssociateTag}'
         '&linkCode=ur2';
   }
+
+  /// 楽天検索URLを生成（アフィリエイトURL未取得時のフォールバック）
+  static String buildRakutenSearchUrl(Game game) {
+    final keyword = Uri.encodeComponent('${game.title} ボードゲーム');
+    return 'https://search.rakuten.co.jp/search/mall/$keyword/';
+  }
 }

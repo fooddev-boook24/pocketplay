@@ -7,7 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants.dart';
 import '../../data/models/game.dart';
 import '../../data/repositories/game_provider.dart';
+import '../../data/repositories/saved_games_provider.dart';
 import '../../shelf/shelf_wall.dart';
+import '../saved/saved_shelf_screen.dart';
+import '../search/search_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -59,7 +62,7 @@ class _StoreAmbience extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xF00C0600), Color(0xBB180C00), Color(0xDD1A0E02)],
+            colors: [Color(0xCC0C0600), Color(0x99180C00), Color(0xBB1A0E02)],
             stops: [0.0, 0.38, 1.0],
           ),
         ),
@@ -133,13 +136,13 @@ class _PendantPainter extends CustomPainter {
 // ─────────────────────────────────────────────────────────────────────────────
 // Store content
 // ─────────────────────────────────────────────────────────────────────────────
-class _StoreContent extends StatefulWidget {
+class _StoreContent extends ConsumerStatefulWidget {
   const _StoreContent({required this.games});
   final List<Game> games;
-  @override State<_StoreContent> createState() => _StoreContentState();
+  @override ConsumerState<_StoreContent> createState() => _StoreContentState();
 }
 
-class _StoreContentState extends State<_StoreContent> {
+class _StoreContentState extends ConsumerState<_StoreContent> {
   final _tc = TransformationController();
   bool _initialized = false;
   double _viewportOffset = 0.0;
@@ -203,7 +206,8 @@ class _StoreContentState extends State<_StoreContent> {
               child: RepaintBoundary(
                 child: ShelfWall(
                   games: widget.games,
-                  rows: buildShelfRows(widget.games),
+                  rows: buildShelfRows(widget.games,
+                      seedOffset: ref.watch(shelfSeedProvider)),
                   wallWidth: wallW,
                   viewportOffset: _viewportOffset,
                   viewportOffsetY: _viewportOffsetY,
@@ -262,14 +266,29 @@ class _LoadingView extends StatelessWidget {
   );
 }
 
-class _TopBar extends StatelessWidget {
+class _TopBar extends ConsumerWidget {
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final top = MediaQuery.of(context).padding.top;
+    final savedCount = ref.watch(savedIdsProvider).length;
     return Padding(
       padding: EdgeInsets.only(top: top + 8, right: 16),
       child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-        _GlassBtn(icon: Icons.search_rounded),
+        _GlassBtn(
+          icon: Icons.search_rounded,
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const SearchScreen())),
+        ),
+        const SizedBox(width: 8),
+        _SavedShelfBtn(count: savedCount),
+        const SizedBox(width: 8),
+        _GlassBtn(
+          icon: Icons.shuffle_rounded,
+          onTap: () {
+            ref.read(shelfSeedProvider.notifier).state =
+                DateTime.now().millisecondsSinceEpoch % 99991;
+          },
+        ),
         const SizedBox(width: 8),
         _GlassBtn(
           icon: Icons.info_outline_rounded,
@@ -307,6 +326,58 @@ class _GlassBtn extends StatelessWidget {
             border: Border.all(color: Colors.white.withOpacity(0.14), width: 0.7),
           ),
           child: Icon(icon, size: 17, color: Colors.white.withOpacity(0.88)),
+        ),
+      ),
+    ),
+  );
+}
+
+class _SavedShelfBtn extends StatelessWidget {
+  const _SavedShelfBtn({required this.count});
+  final int count;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: () => Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const SavedShelfScreen())),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.32),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+                color: count > 0
+                    ? const Color(0xFFD09248).withOpacity(0.60)
+                    : Colors.white.withOpacity(0.14),
+                width: 0.7),
+          ),
+          child: Stack(children: [
+            Center(child: Icon(Icons.bookmark_rounded,
+                size: 17,
+                color: count > 0
+                    ? const Color(0xFFD09248)
+                    : Colors.white.withOpacity(0.88))),
+            if (count > 0)
+              Positioned(
+                right: 3, top: 3,
+                child: Container(
+                  width: 13, height: 13,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFD09248),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text('$count',
+                        style: const TextStyle(
+                            fontSize: 7, fontWeight: FontWeight.w800,
+                            color: Colors.black, height: 1.0)),
+                  ),
+                ),
+              ),
+          ]),
         ),
       ),
     ),

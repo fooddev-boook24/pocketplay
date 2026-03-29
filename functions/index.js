@@ -8,71 +8,34 @@ const xml2js = require('xml2js');
 admin.initializeApp();
 const db = admin.firestore();
 
-// BGGトークンはFirebase Secret Managerで管理
-// デプロイ前に: firebase functions:secrets:set BGG_APP_TOKEN
 const bggToken = defineSecret('BGG_APP_TOKEN');
 const adminKey = defineSecret('ADMIN_KEY');
 
 const BGG_API = 'https://boardgamegeek.com/xmlapi2/thing';
 const BATCH_SIZE = 20;
 const BATCH_DELAY_MS = 1000;
-
-// ─── ゲームIDリスト（FlutterアプリのkSeedGamesと同期）───────────────────────
-const GAME_BGG_IDS = [
-  { id: 'mysterium',    bggId: 181304 },
-  { id: 'gloomhaven',   bggId: 174430 },
-  { id: 'wingspan',     bggId: 266192 },
-  { id: 'catan',        bggId: 13 },
-  { id: 'arkham',       bggId: 257499 },
-  { id: 'terraforming', bggId: 167791 },
-  { id: '7wonders',     bggId: 68448 },
-  { id: 'pandemic',     bggId: 30549 },
-  { id: 'azul',         bggId: 230802 },
-  { id: 'codenames',    bggId: 178900 },
-  { id: 'dominion',     bggId: 36218 },
-  { id: 'ticket_ride',  bggId: 9209 },
-  { id: 'terraforming', bggId: 167791 },
-  { id: 'concordia',    bggId: 124361 },
-  { id: 'viticulture',  bggId: 128621 },
-  { id: 'agricola',     bggId: 31260 },
-  { id: 'kingdomino',   bggId: 204583 },
-  { id: 'carcassonne',  bggId: 822 },
-  { id: 'patchwork',    bggId: 163412 },
-  { id: 'jaipur',       bggId: 54043 },
-  { id: 'lost_cities',  bggId: 50 },
-  { id: 'hive',         bggId: 2655 },
-  { id: 'splendor',     bggId: 148228 },
-  { id: 'dixit',        bggId: 39856 },
-  { id: 'sushi_go',     bggId: 133473 },
-  { id: 'skull',        bggId: 92415 },
-  { id: 'coup',         bggId: 131357 },
-  { id: 'hanabi',       bggId: 98778 },
-  { id: 'no_thanks',    bggId: 12942 },
-  { id: 'bohnanza',     bggId: 11 },
-  { id: 'love_letter',  bggId: 129622 },
-];
+const REFRESH_DAYS = 7;      // 最終取得から7日以上経過したゲームを更新対象とする
+const MAX_PER_RUN = 200;     // 1回のFunction実行で更新する上限件数（タイムアウト対策）
 
 // ─── BGGからゲームデータを取得 ──────────────────────────────────────────────
 async function fetchBggBatch(bggIds, token) {
   const ids = bggIds.join(',');
   const url = `${BGG_API}?id=${ids}&type=boardgame&stats=1`;
 
-  let response = await axios.get(url, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'User-Agent': 'PocketPlay/1.0 (board game discovery app)',
-      'Accept': 'application/xml,text/xml,*/*',
-    },
-    timeout: 30000,
-  });
+  const reqHeaders = {
+    'Authorization': `Bearer ${token}`,
+    'User-Agent': 'PocketPlay/1.0 (board game discovery app)',
+    'Accept': 'application/xml,text/xml,*/*',
+  };
 
-  // 202 = BGGが処理中 → 4秒待ってリトライ
-  if (response.status === 202) {
+  let response = await axios.get(url, { headers: reqHeaders, timeout: 30000 });
+
+  // 202 = BGGがキューイング中 → 最大3回リトライ
+  let retries = 0;
+  while (response.status === 202 && retries < 3) {
     await new Promise(r => setTimeout(r, 4000));
-    response = await axios.get(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
-      timeout: 30000,
-    });
+    response = await axios.get(url, { headers: reqHeaders, timeout: 30000 });
+    retries++;
   }
 
   if (response.status !== 200) {
@@ -93,23 +56,19 @@ async function parseBggXml(xml) {
     const image = item.image?.[0]?.trim();
     const thumbnail = item.thumbnail?.[0]?.trim();
 
-    // プライマリ名（英語）
     const names = item.name || [];
     const primaryName = names.find(n => n.$.type === 'primary')?.$.value || '';
 
-    // 統計
     const stats = item.statistics?.[0]?.ratings?.[0];
     const rating = parseFloat(stats?.average?.[0]?.$.value || '0');
     const complexity = parseFloat(stats?.averageweight?.[0]?.$.value || '0');
 
-    // プレイ人数・時間
     const minPlayers = parseInt(item.minplayers?.[0]?.$.value || '0');
     const maxPlayers = parseInt(item.maxplayers?.[0]?.$.value || '0');
     const minTime = parseInt(item.minplaytime?.[0]?.$.value || '0');
     const maxTime = parseInt(item.maxplaytime?.[0]?.$.value || '0');
     const playTime = maxTime || minTime;
 
-    // カテゴリ・メカニクス
     const links = item.link || [];
     const categories = links
       .filter(l => l.$.type === 'boardgamecategory')
@@ -122,7 +81,6 @@ async function parseBggXml(xml) {
       .map(l => l.$.value)
       .filter(d => d !== '(Uncredited)');
 
-    // 説明文（HTMLエンティティをデコード）
     let description = item.description?.[0] || '';
     description = description
       .replace(/&#10;/g, '\n')
@@ -152,15 +110,14 @@ async function parseBggXml(xml) {
 }
 
 // ─── Firestoreに保存（既存データとマージ）──────────────────────────────────
-async function saveToFirestore(gameId, bggData) {
-  const ref = db.collection('games').doc(gameId);
+async function saveToFirestore(docId, bggData) {
+  const ref = db.collection('games').doc(docId);
   const existing = await ref.get();
 
   const update = {
     lastFetched: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  // imageUrlは既存データを上書きしない（楽天画像が入っている可能性）
   if (bggData.image) update.imageUrl = bggData.image;
   if (bggData.thumbnail) update.thumbnailUrl = bggData.thumbnail;
   if (bggData.minPlayers) update.minPlayers = bggData.minPlayers;
@@ -171,7 +128,7 @@ async function saveToFirestore(gameId, bggData) {
   if (bggData.categories?.length) update.categories = bggData.categories;
   if (bggData.mechanics?.length) update.mechanics = bggData.mechanics;
   if (bggData.designers?.length) update.designers = bggData.designers;
-  // 説明文は英語のみ → 既存の日本語説明を上書きしない
+  // 説明文は既存の日本語説明を上書きしない
   if (bggData.description && !existing.data()?.description) {
     update.description = bggData.description;
   }
@@ -179,35 +136,82 @@ async function saveToFirestore(gameId, bggData) {
   await ref.set(update, { merge: true });
 }
 
+// ─── 更新対象ゲームをFirestoreから取得 ──────────────────────────────────────
+// 優先順位:
+//   1. lastFetched が null（新規追加ゲーム）
+//   2. lastFetched が REFRESH_DAYS 日以上前（古いゲーム）
+// 上限 MAX_PER_RUN 件まで
+async function fetchStaleGames() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - REFRESH_DAYS);
+
+  // 未取得ゲーム（lastFetchedなし）を優先取得
+  const newGamesSnap = await db.collection('games')
+    .where('lastFetched', '==', null)
+    .limit(MAX_PER_RUN)
+    .get();
+
+  const results = [];
+  newGamesSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.bggId) results.push({ docId: doc.id, bggId: data.bggId });
+  });
+
+  // 残り枠を古いゲームで埋める
+  const remaining = MAX_PER_RUN - results.length;
+  if (remaining > 0) {
+    const staleSnap = await db.collection('games')
+      .where('lastFetched', '<', admin.firestore.Timestamp.fromDate(cutoff))
+      .orderBy('lastFetched', 'asc')   // 最も古いものから優先
+      .limit(remaining)
+      .get();
+
+    staleSnap.forEach(doc => {
+      const data = doc.data();
+      if (data.bggId) results.push({ docId: doc.id, bggId: data.bggId });
+    });
+  }
+
+  return results;
+}
+
 // ─── メイン処理 ──────────────────────────────────────────────────────────────
 async function runPipeline(token) {
-  const unique = [...new Map(GAME_BGG_IDS.map(g => [g.bggId, g])).values()];
-  console.log(`Processing ${unique.length} games...`);
+  const targets = await fetchStaleGames();
+  console.log(`Update targets: ${targets.length} games (stale or new)`);
+
+  if (targets.length === 0) {
+    console.log('All games are up to date.');
+    return { success: 0, failed: 0, skipped: 0 };
+  }
+
+  // bggId → docId のマップ
+  const bggIdToDocId = new Map(targets.map(t => [t.bggId, t.docId]));
+  const bggIds = targets.map(t => t.bggId);
 
   let success = 0;
   let failed = 0;
 
-  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-    const batch = unique.slice(i, i + BATCH_SIZE);
-    const bggIds = batch.map(g => g.bggId);
+  for (let i = 0; i < bggIds.length; i += BATCH_SIZE) {
+    const batchIds = bggIds.slice(i, i + BATCH_SIZE);
 
     try {
-      const xml = await fetchBggBatch(bggIds, token);
+      const xml = await fetchBggBatch(batchIds, token);
       const parsed = await parseBggXml(xml);
 
       for (const data of parsed) {
-        const game = batch.find(g => g.bggId === data.bggId);
-        if (!game) continue;
-        await saveToFirestore(game.id, data);
-        console.log(`✓ ${game.id}: image=${!!data.image} rating=${data.bggRating}`);
+        const docId = bggIdToDocId.get(data.bggId);
+        if (!docId) continue;
+        await saveToFirestore(docId, data);
+        console.log(`✓ ${docId} (bggId:${data.bggId}): rating=${data.bggRating}`);
         success++;
       }
     } catch (err) {
-      console.error(`Batch error: ${err.message}`);
-      failed += batch.length;
+      console.error(`Batch error (ids=${batchIds.slice(0, 3)}...): ${err.message}`);
+      failed += batchIds.length;
     }
 
-    if (i + BATCH_SIZE < unique.length) {
+    if (i + BATCH_SIZE < bggIds.length) {
       await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
     }
   }
@@ -244,7 +248,6 @@ exports.manualBggSync = onRequest(
     timeoutSeconds: 300,
   },
   async (req, res) => {
-    // 簡易認証（本番では Firebase Auth に変更すること）
     const key = req.headers['x-admin-key'];
     if (key !== adminKey.value()) {
       res.status(403).send('Forbidden');

@@ -7,11 +7,14 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:in_app_review/in_app_review.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/ad_banner.dart';
 import '../../data/models/game.dart';
 import '../../data/models/game_detail.dart';
 import '../../data/repositories/game_provider.dart';
+import '../../data/repositories/saved_games_provider.dart';
 import '../../data/services/affiliate_service.dart';
 import '../../shelf/box_widgets.dart';
+import '../search/search_screen.dart';
 
 // ─── ストアレビュー: 5回目の詳細閲覧でリクエスト ────────────────────────────
 class _ReviewService {
@@ -58,11 +61,10 @@ class GameDetailScreen extends HookConsumerWidget {
       data: (d) => d,
       orElse: () => GameDetail(game: game),
     );
-    // detail.game は毎 rebuild で新オブジェクトになるため、安定した game を使う
-    final rakutenAsync = ref.watch(rakutenUrlProvider(game));
-
+    final isLoading = detailAsync.isLoading;
     return Scaffold(
       backgroundColor: const Color(0xFF120900),
+      bottomNavigationBar: const AdBannerWidget(),
       body: Stack(
         children: [
           CustomScrollView(
@@ -88,14 +90,7 @@ class GameDetailScreen extends HookConsumerWidget {
                     child: _DescriptionSection(text: detail.game.description!)),
               // 購入
               SliverToBoxAdapter(
-                child: _PurchaseSection(
-                  game: detail.game,
-                  rakutenUrl: rakutenAsync.maybeWhen(
-                    data: (url) => url,
-                    orElse: () => null,
-                  ),
-                  rakutenLoading: rakutenAsync is AsyncLoading,
-                ),
+                child: _PurchaseSection(game: detail.game),
               ),
               SliverToBoxAdapter(
                 child: SizedBox(
@@ -108,6 +103,12 @@ class GameDetailScreen extends HookConsumerWidget {
             top: MediaQuery.of(context).padding.top + 8,
             left: 16,
             child: const _BackButton(),
+          ),
+          // 保存ボタン（右上）
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 60,
+            child: _SaveButton(game: detail.game),
           ),
           // シェアボタン（右上）
           Positioned(
@@ -475,14 +476,8 @@ class _DescriptionSectionState extends State<_DescriptionSection> {
 // 購入ボタン
 // ─────────────────────────────────────────────────────────────────────────────
 class _PurchaseSection extends StatelessWidget {
-  const _PurchaseSection({
-    required this.game,
-    required this.rakutenUrl,
-    required this.rakutenLoading,
-  });
+  const _PurchaseSection({required this.game});
   final Game game;
-  final String? rakutenUrl;
-  final bool rakutenLoading;
 
   Future<void> _launch(String url) async {
     final uri = Uri.parse(url);
@@ -502,7 +497,7 @@ class _PurchaseSection extends StatelessWidget {
           const SizedBox(height: 12),
           _BuyButton(
             label: 'Amazonで見る',
-            sublabel: 'アソシエイトリンク',
+            sublabel: 'Amazon.co.jp で検索',
             color: const Color(0xFFE07800),
             icon: Icons.shopping_bag_outlined,
             onTap: () => _launch(AffiliateService.buildAmazonSearchUrl(game)),
@@ -510,13 +505,10 @@ class _PurchaseSection extends StatelessWidget {
           const SizedBox(height: 10),
           _BuyButton(
             label: '楽天で見る',
-            sublabel: rakutenLoading
-                ? '検索中...'
-                : (rakutenUrl != null ? '楽天市場で購入' : '準備中'),
+            sublabel: '楽天市場で検索',
             color: const Color(0xFFBF0000),
             icon: Icons.storefront_outlined,
-            onTap: rakutenUrl != null ? () => _launch(rakutenUrl!) : null,
-            loading: rakutenLoading,
+            onTap: () => _launch(AffiliateService.buildRakutenSearchUrl(game)),
           ),
         ],
       ),
@@ -640,6 +632,45 @@ class _BackButton extends StatelessWidget {
             ),
             child: Icon(Icons.arrow_back_ios_new_rounded,
                 size: 17, color: Colors.white.withValues(alpha: 0.90)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 保存ボタン（ブックマーク）
+// ─────────────────────────────────────────────────────────────────────────────
+class _SaveButton extends ConsumerWidget {
+  const _SaveButton({required this.game});
+  final Game game;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isSaved = ref.watch(savedIdsProvider).contains(game.id);
+    return GestureDetector(
+      onTap: () => ref.read(savedIdsProvider.notifier).toggle(game.id),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: isSaved
+                  ? const Color(0xFFD09248).withOpacity(0.85)
+                  : Colors.black.withOpacity(0.32),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: Colors.white.withOpacity(isSaved ? 0.30 : 0.14),
+                  width: 0.7),
+            ),
+            child: Icon(
+              isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+              size: 18,
+              color: isSaved ? Colors.white : Colors.white.withOpacity(0.88),
+            ),
           ),
         ),
       ),

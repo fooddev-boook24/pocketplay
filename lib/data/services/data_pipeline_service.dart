@@ -2,8 +2,6 @@ import 'dart:developer' as dev;
 import '../models/game.dart';
 import '../repositories/bgg_repository.dart';
 import '../repositories/game_data_repository.dart';
-import '../repositories/rakuten_repository.dart';
-import '../repositories/yahoo_repository.dart';
 
 /// 起動時パイプライン:
 /// 1. Firestoreにデータがあれば返す
@@ -13,8 +11,6 @@ class DataPipelineService {
   static final instance = DataPipelineService._();
 
   final _repo = GameDataRepository.instance;
-  final _rakuten = RakutenRepository.instance;
-  final _yahoo = YahooRepository.instance;
 
   // バッチ完了後に呼ばれるコールバック（gamesProviderをinvalidate）
   void Function()? onBatchComplete;
@@ -25,15 +21,13 @@ class DataPipelineService {
 
       if (firestoreGames.isNotEmpty) {
         dev.log('Using ${firestoreGames.length} games from Firestore', name: 'DataPipelineService');
-        // kSeedGamesのlocalAssetをマージ（Firestoreには保存しないローカルパス）
         final games = _mergeBggCache(_mergeLocalAssets(firestoreGames));
-        // バックグラウンドでBGG画像＋楽天URLを取得
         Future.delayed(Duration.zero, () => _batchFetchMissing(games));
         return games;
       }
 
-      // Firestoreが空 → シードデータを投入
-      dev.log('Firestore empty, seeding with local data...', name: 'DataPipelineService');
+      // Firestoreが空 → 全kSeedGamesを投入（30件の_seedDataではなく65件全部）
+      dev.log('Firestore empty, seeding all ${kSeedGames.length} games...', name: 'DataPipelineService');
       await _repo.saveGames(_buildSeedGames());
       dev.log('Seeded ${kSeedGames.length} games to Firestore', name: 'DataPipelineService');
       final games = _mergeBggCache(kSeedGames);
@@ -47,89 +41,92 @@ class DataPipelineService {
     }
   }
 
-  /// BGG画像＋楽天URLをバックグラウンドで一括取得
+  /// BGGホットリスト取得 + 画像補完をバックグラウンドで実行
   Future<void> _batchFetchMissing(List<Game> games) async {
-    // ── 1. BGG画像取得（imageUrlがないゲーム）────────────────────────────
+    // ── 0a. 初期ライブラリ補完（未取得IDがある限り毎起動チェック）
+    await _fetchInitialLibrary(games);
+    // ── 0b. 毎起動: BGGホット新着を追加
+    await _fetchAndAddHotGames(games);
+
+    // ── 1. BGG画像取得（imageUrlがないゲーム）
     final noImage = games
         .where((g) => g.imageUrl == null && g.localAsset == null)
         .toList();
-    if (noImage.isNotEmpty) {
-      dev.log('Fetching BGG images for ${noImage.length} games',
-          name: 'DataPipelineService');
-      final imageMap = await BggRepository.instance.fetchImages(noImage);
-      // Firestoreに保存（失敗しても続行）
-      for (final game in noImage) {
-        final url = imageMap[game.bggId];
-        if (url != null) {
-          try {
-            await _repo.saveGame(game.copyWith(imageUrl: url));
-          } catch (_) {}
+    if (noImage.isEmpty) return;
+
+    dev.log('Fetching BGG images for ${noImage.length} games',
+        name: 'DataPipelineService');
+    final imageMap = await BggRepository.instance.fetchImages(noImage);
+    for (final game in noImage) {
+      final url = imageMap[game.bggId];
+      if (url != null) {
+        try {
+          await _repo.saveGame(game.copyWith(imageUrl: url));
+        } catch (_) {}
+      }
+    }
+    if (imageMap.isNotEmpty) {
+      dev.log('BGG images fetched: ${imageMap.length}', name: 'DataPipelineService');
+      onBatchComplete?.call();
+    }
+  }
+
+  /// Firestoreのゲーム数が300未満の場合にBGG上位ゲームを取得して補完
+  Future<void> _fetchInitialLibrary(List<Game> currentGames) async {
+    try {
+      final knownBggIds = currentGames.map((g) => g.bggId).toSet();
+      final toFetch = _kInitialBggIds
+          .where((id) => !knownBggIds.contains(id))
+          .toList();
+      if (toFetch.isEmpty) {
+        dev.log('Initial library: all IDs already fetched', name: 'DataPipelineService');
+        return;
+      }
+
+      dev.log('Initial library fetch: ${toFetch.length} BGG IDs '
+          '(current: ${currentGames.length})', name: 'DataPipelineService');
+
+      // 20件ずつバッチ処理。各バッチで部分的に失敗しても続行
+      int saved = 0;
+      for (var i = 0; i < toFetch.length; i += 20) {
+        final batch = toFetch.skip(i).take(20).toList();
+        try {
+          final stubs = await BggRepository.instance.fetchGameStubs(batch);
+          for (final game in stubs) {
+            try { await _repo.saveGame(game); saved++; } catch (_) {}
+          }
+          // バッチごとに棚を更新（順次表示される）
+          if (stubs.isNotEmpty) onBatchComplete?.call();
+        } catch (e) {
+          dev.log('Initial library batch $i error: $e', name: 'DataPipelineService');
+        }
+        if (i + 20 < toFetch.length) {
+          await Future.delayed(const Duration(milliseconds: 800));
         }
       }
-      if (imageMap.isNotEmpty) {
-        dev.log('BGG images fetched: ${imageMap.length}', name: 'DataPipelineService');
-        onBatchComplete?.call(); // BGG完了時点で棚を更新
-      }
+      dev.log('Initial library complete: $saved games saved', name: 'DataPipelineService');
+    } catch (e) {
+      dev.log('_fetchInitialLibrary error: $e', name: 'DataPipelineService');
     }
-
-    // ── 2. 楽天URL取得（未取得ゲーム）──────────────────────────────────
-    final missingRakuten = games
-        .where((g) => g.rakutenAffUrl == null || g.rakutenAffUrl!.isEmpty)
-        .toList();
-    if (missingRakuten.isEmpty) return;
-
-    dev.log('Batch fetching Rakuten for ${missingRakuten.length} games',
-        name: 'DataPipelineService');
-    int count = 0;
-    for (final game in missingRakuten) {
-      await getOrFetchRakutenUrl(game);
-      count++;
-      if (count < missingRakuten.length) {
-        await Future.delayed(const Duration(seconds: 1));
-      }
-    }
-    dev.log('Rakuten batch complete ($count games)', name: 'DataPipelineService');
-    onBatchComplete?.call();
   }
 
-  /// 楽天アフィリエイトURL + 画像を取得してFirestoreに保存
-  Future<String?> getOrFetchRakutenUrl(Game game) async {
+  /// BGGホットリストを取得し、まだFirestoreにないゲームを追加する
+  Future<void> _fetchAndAddHotGames(List<Game> currentGames) async {
     try {
-      final result = await _rakuten.fetchResult(game);
-      if (result == null) return null;
+      final hotGames = await BggRepository.instance.fetchHotGames(currentGames: currentGames);
+      if (hotGames.isEmpty) return;
 
-      // 楽天画像は正方形の商品写真 → ぼかし背景用にthumbnailUrlとして保存
-      // imageUrl（ボックス正面に使用）には設定しない（歪み防止）
-      final updated = game.copyWith(
-        rakutenAffUrl: result.affiliateUrl,
-        thumbnailUrl: game.thumbnailUrl == null ? result.imageUrl : null,
-      );
-      await _repo.saveGame(updated);
-      dev.log('Saved Rakuten data for ${game.id} '
-          '(image: ${result.imageUrl != null})',
+      dev.log('Found ${hotGames.length} new hot games', name: 'DataPipelineService');
+      for (final game in hotGames) {
+        try {
+          await _repo.saveGame(game);
+        } catch (_) {}
+      }
+      onBatchComplete?.call();
+      dev.log('Hot games saved to Firestore: ${hotGames.length}',
           name: 'DataPipelineService');
-
-      return result.affiliateUrl;
     } catch (e) {
-      dev.log('getOrFetchRakutenUrl error: $e', name: 'DataPipelineService');
-      return null;
-    }
-  }
-
-  /// Yahoo!ショッピングURL取得（オンデマンド）
-  Future<String?> getOrFetchYahooUrl(Game game) async {
-    try {
-      final result = await _yahoo.fetchResult(game);
-      if (result?.url == null) return null;
-      final updated = game.copyWith(
-        thumbnailUrl: game.thumbnailUrl == null ? result!.imageUrl : null,
-      );
-      await _repo.saveGame(updated);
-      dev.log('Saved Yahoo data for ${game.id}', name: 'DataPipelineService');
-      return result!.url;
-    } catch (e) {
-      dev.log('getOrFetchYahooUrl error: $e', name: 'DataPipelineService');
-      return null;
+      dev.log('_fetchAndAddHotGames error: $e', name: 'DataPipelineService');
     }
   }
 
@@ -159,21 +156,26 @@ class DataPipelineService {
     }).toList();
   }
 
-  /// Firestoreに投入するシードゲームリスト（スクリプトのデータをGameオブジェクトへ）
-  List<Game> _buildSeedGames() => _seedData.map((d) {
-    final base = kSeedGames.firstWhere(
-      (g) => g.id == d['id'],
-      orElse: () => kSeedGames.first,
-    );
-    return base.copyWith(
-      minPlayers:     d['minPlayers'] as int?,
-      maxPlayers:     d['maxPlayers'] as int?,
-      playTimeMinutes: d['playTimeMinutes'] as int?,
-      bggRating:      (d['bggRating'] as num).toDouble(),
-      categories:     (d['categories'] as List).cast<String>(),
-      description:    d['description'] as String?,
-    );
-  }).toList();
+  /// Firestoreに投入するシードゲームリスト
+  /// kSeedGames全件を保存し、_seedDataに詳細データがあればマージする
+  List<Game> _buildSeedGames() {
+    // _seedDataをidでインデックス化
+    final seedMap = {
+      for (final d in _seedData) d['id'] as String: d,
+    };
+    return kSeedGames.map((game) {
+      final d = seedMap[game.id];
+      if (d == null) return game; // 詳細データなし → そのまま保存
+      return game.copyWith(
+        minPlayers:      d['minPlayers'] as int?,
+        maxPlayers:      d['maxPlayers'] as int?,
+        playTimeMinutes: d['playTimeMinutes'] as int?,
+        bggRating:       (d['bggRating'] as num).toDouble(),
+        categories:      (d['categories'] as List).cast<String>(),
+        description:     d['description'] as String?,
+      );
+    }).toList();
+  }
 }
 
 // ゲームの手動データ（BGG APIが使えないため直接記述）
@@ -209,3 +211,269 @@ const _seedData = [
   {'id':'skull',       'minPlayers':3,'maxPlayers':6, 'playTimeMinutes':45,  'bggRating':7.1, 'categories':['Bluffing','Party','Bidding'],                     'description':'バイカーギャングテーマの心理戦ブラフゲーム。花かドクロかを隠して競り合う。シンプルながらドキドキが止まらない。'},
   {'id':'no_thanks',   'minPlayers':3,'maxPlayers':5, 'playTimeMinutes':20,  'bggRating':7.1, 'categories':['Card Game','Filler','Party'],                     'description':'「いらない！」と言い続けるカードゲーム。受け取りたくないカードにチップを積むか全部引き受けるかの心理戦。'},
 ];
+
+/// 初期ライブラリ用 BGG ID リスト（kSeedGamesと重複しない ~260件）
+/// kSeedGames 65件 + これら = 計 ~325件を初回起動時に確保（300件保証）
+/// ※ bggIdの重複チェックは _fetchInitialLibrary 内で実施済み（重複は自動スキップ）
+const _kInitialBggIds = [
+  // ── BGG Top 50 圏（重量級） ─────────────────────────────────────────────
+  342942, // Ark Nova
+  316554, // Dune: Imperium
+  274637, // Lost Ruins of Arnak
+  161936, // Pandemic Legacy: Season 1
+  155821, // Pandemic Legacy: Season 2
+  300531, // Pandemic Legacy: Season 0
+  84876,  // The Castles of Burgundy
+  233078, // Twilight Imperium 4th Edition
+  182028, // Through the Ages: A New Story of Civilization
+  12333,  // Twilight Struggle
+  96848,  // Mage Knight Board Game
+  115746, // War of the Ring (2nd Edition)
+  220308, // Gaia Project
+  187645, // Star Wars: Rebellion
+  195421, // A Feast for Odin
+  175914, // Gloomhaven: Jaws of the Lion
+  257351, // Underwater Cities
+  310873, // Dune: Imperium – Uprising
+  297081, // Beyond the Sun
+  293014, // Heat: Pedal to the Metal
+
+  // ── 重量ユーロ ────────────────────────────────────────────────────────────
+  279537, // On Mars
+  143519, // Caverna: The Cave Farmers
+  102652, // Tzolk'in: The Mayan Calendar
+  157354, // Five Tribes
+  218417, // Clans of Caledonia
+  55690,  // Le Havre
+  59254,  // Dominant Species
+  121921, // Robinson Crusoe: Adventures on the Cursed Island
+  291453, // Paladins of the West Kingdom
+  258779, // Architects of the West Kingdom
+  291457, // Viscounts of the West Kingdom
+  237179, // Maracaibo
+  244521, // Res Arcana
+  261220, // Anachrony
+  221107, // Lorenzo il Magnifico
+  246584, // Praga Caput Regni
+  251322, // Bonfire
+  184267, // Trickerion: Legends of Illusion
+  175045, // Food Chain Magnate
+  27801,  // Caylus
+  3076,   // Puerto Rico
+  35677,  // Stone Age
+  28143,  // Brass: Lancashire
+  110327, // Lords of Waterdeep
+  122515, // Keyflower
+  228341, // Pax Pamir (Second Edition)
+  72125,  // Eclipse: Second Dawn for the Galaxy
+  176671, // Yokohama
+  55999,  // Navegador
+  99692,  // Alchemists
+
+  // ── 中量ユーロ ────────────────────────────────────────────────────────────
+  209010, // Sagrada
+  108745, // Suburbia
+  40398,  // Dominion: Seaside
+  136888, // Bruges
+  144733, // Tuscany: Essential Edition (Viticulture拡張)
+  152196, // Codenames: Pictures
+  42,     // Tigris & Euphrates
+  74,     // Acquire
+  189,    // Samurai
+  478,    // Citadels
+  45,     // Medici
+  127023, // Viticulture (original) — bggId≠128621なら追加
+  40834,  // Dominion: Intrigue
+  120677, // Paperback
+  312484, // Meadow
+  325494, // Earth
+  330592, // Sleeping Gods
+  309110, // Imperium: Classics
+  366013, // Wingspan: Asia
+  228830, // Wingspan: European Expansion
+
+  // ── テーマ系・ダンジョン ──────────────────────────────────────────────────
+  167355, // Arkham Horror: The Card Game
+  183394, // Mansions of Madness 2nd Edition
+  38453,  // Small World
+  90572,  // Elder Sign
+  104006, // Descent: Journeys in the Dark 2nd
+  37111,  // Battlestar Galactica: The Board Game
+  135220, // Sentinels of the Multiverse
+  285774, // Marvel Champions: The Card Game
+  233867, // Betrayal at House on the Hill
+  238042, // The 7th Continent
+  330501, // Hegemony: Lead Your Class to Victory
+  312786, // Nucleum
+
+  // ── 2人用専用 ─────────────────────────────────────────────────────────────
+  256960, // Watergate
+  271055, // The Crew: The Quest for Planet Nine
+  223040, // The Crew: Mission Deep Sea
+  311965, // Marvel United
+  265736, // Undaunted: Normandy
+
+  // ── ライトストラテジー・ファミリー ────────────────────────────────────────
+  215312, // Pandemic: Iberia
+  70149,  // Pandemic: In the Lab
+  37380,  // Pandemic: On the Brink
+  14996,  // Descent: Journeys in the Dark (1st)
+  181,    // Risk 2210 A.D.
+  297030, // Disney Villainous
+  313554, // Ticket to Ride: Europe
+  171623, // The Networks
+  192458, // Azul: Stained Glass of Sintra
+  255684, // Azul: Summer Pavilion
+
+  // ── フィラー・パーティー（kSeedGamesに未含有） ─────────────────────────
+  64766,  // Dixit: Odyssey
+  152156, // Codenames: Deep Undercover
+  262316, // Sushi Go Party!
+  188334, // Secret Hitler
+  148949, // Istanbul (already in kSeedGames via id:'istanbul') — filtered by bggId
+  271832, // Verdant
+  299480, // Cascadia (alternate?)
+  209996, // Tiny Towns
+  276025, // My City
+  216132, // The Quacks of Quedlinburg
+  263918, // The Quacks of Quedlinburg: The Alchemists
+  315610, // The Wandering Towers
+  353467, // The White Castle
+  382948, // Forest Shuffle
+  372765, // Harmonies
+  371942, // Sky Team
+  381598, // Red Cathedral
+  378456, // Aqua: Ocean's Heart
+  356355, // Lands of Galzyr
+  282524, // Distilled
+  337474, // Earth (2nd?)
+  348458, // Lacrimosa
+  339789, // Apiary
+
+  // ── ソロ・協力 ────────────────────────────────────────────────────────────
+  253284, // Spirit Island: Jagged Earth
+  199042, // Robinson Crusoe: Mystery Tales
+  247763, // Pandemic: Hot Zone North America
+  311646, // Pandemic: Emergency Phase
+  317985, // Arkham Horror 3rd Edition
+
+  // ── 戦争・ウォーゲーム ──────────────────────────────────────────────────
+  37379,  // Conflict of Heroes: Awakening the Bear
+  73439,  // Labyrinth: The War on Terror
+  65244,  // Wilderness War
+
+  // ── 追加: 重量ユーロ・重量テーマ ─────────────────────────────────────────
+  35947,  // Race for the Galaxy
+  31627,  // Galaxy Trucker
+  63888,  // Innovation
+  91671,  // Ora et Labora
+  128345, // Village
+  142177, // Kemet
+  195856, // Inis
+  172386, // Abyss
+  178341, // The Gallerist
+  198994, // Lisboa
+  181345, // The Voyages of Marco Polo
+  146021, // Eldritch Horror
+  148864, // Dead of Winter: The Long Night
+  288988, // Paleo
+  290448, // Tainted Grail: The Fall of Avalon
+  246900, // Eclipse: Second Dawn for the Galaxy
+  193037, // Hadara
+  251247, // Tapestry
+  169786, // Scythe: Invaders from Afar
+  205637, // Scythe: The Rise of Fenris
+  188834, // Orléans: Invasion
+  292457, // Maracaibo (card game version)
+  307658, // Watergate (new ed)
+  330533, // Dominion: Renaissance
+  323612, // Ark Nova (alt)
+  294137, // On the Underground
+  266810, // Wingspan (Dutch? alt)
+  350184, // Spots
+  317311, // Lost Ruins of Arnak: Expedition Leaders
+  350108, // Challengers!
+  362944, // Ark Nova (target)
+  366161, // HEAT (alt)
+
+  // ── 追加: 中量ゲーム ─────────────────────────────────────────────────────
+  155987, // Colt Express
+  152218, // Sheriff of Nottingham
+  159675, // Mice and Mystics
+  271324, // Cartographers
+  222770, // Welcome To...
+  308765, // Stardew Valley: The Board Game
+  172818, // Above and Below
+  176289, // This War of Mine: The Board Game
+  2655,   // Hansa Teutonica
+  168270, // Aeon's End
+  170042, // Raiders of the North Sea
+  300012, // Furnace
+  246224, // Planet Unknown
+  262211, // Hadrian's Wall
+  158600, // Between Two Cities
+  182874, // Between Two Castles of Mad King Ludwig
+  332686, // Oath: Chronicles of Empire & Exile
+  223617, // Clank! Legacy: Acquisitions Incorporated
+  193290, // Village: Port
+  282524, // Distilled (already in list, deduped)
+  269188, // Fleet: The Dice Game
+  339879, // Mindbug: First Contact
+  294037, // Cascadia: Landmarks
+  337474, // Earth (alt, deduped)
+  294116, // Wandering Towers
+
+  // ── 追加: ライト・パーティー ─────────────────────────────────────────────
+  314491, // Zombie Teenz Evolution
+  306479, // The Fox in the Forest Duet
+  291453, // Paladins (deduped)
+  265736, // Undaunted: Normandy (deduped)
+  183840, // Coup: Rebellion G54
+  161533, // Orléans (alt bggId check)
+  296224, // Pathfinder: Core Set
+  176042, // Oh My Goods!
+  240980, // Sagrada (alternate)
+  317985, // Arkham Horror 3rd Ed (deduped)
+  199792, // Pandemic: Iberia (alt)
+  186508, // Pandemic: State of Emergency
+  161936, // Pandemic Legacy S1 (deduped)
+  291010, // Paleo (alt)
+  315377, // Cartographers Heroes
+  310873, // Dune: Uprising (deduped)
+
+  // ── 追加: 2人用専用 ──────────────────────────────────────────────────────
+  256960, // Watergate (deduped)
+  223040, // The Crew: Mission Deep Sea (deduped)
+  271055, // The Crew: Quest for Planet Nine (deduped)
+  284083, // The Crew: Mission Deep Sea alt
+  265736, // Undaunted: Normandy (deduped)
+  304783, // Undaunted: North Africa
+  364073, // Undaunted: Reinforcements
+  369406, // Mindbug: Base Set
+
+  // ── 追加: ファミリー・軽量 ───────────────────────────────────────────────
+  269144, // Wingspan: European Exp (alt bggId)
+  298871, // Flamecraft
+  299004, // My Little Scythe
+  241724, // Parks
+  272324, // Wavelength (alt)
+  351538, // Faraway
+  374173, // Sky Team (deduped)
+  383312, // Harmonies (alt)
+  354729, // Nucleum (alt)
+  368566, // Fit to Print
+  377083, // Botanik
+  378456, // Aqua (deduped)
+  386683, // Rebis
+  380980, // Thunder Road: Vendetta
+  358383, // Isle of Cats: Don't Panic
+  347636, // Anno 1800: The Board Game
+  321942, // Everdell: Newleaf
+  317718, // Everdell: Spirecrest (2nd ed)
+  300905, // Points Salad
+  288255, // The Isle of Cats
+  329839, // Great Plains
+  248127, // Wingspan: Nesting
+  200680, // Village: Port (alt)
+];
+
